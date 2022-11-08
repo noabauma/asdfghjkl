@@ -150,7 +150,7 @@ class FisherMaker(GradientMaker):
     def _register_fisher(self, cxt: OperationContext):
         model = self.model
         attr = self.config.fisher_attr
-        for module in model.modules():
+        for module in model.modules():                  #TODO: only certain GPUs need specific modules for model-parallelism?
             fisher = getattr(module, attr, None)
             if fisher is not None:
                 cxt.register_symmatrix(module, fisher)

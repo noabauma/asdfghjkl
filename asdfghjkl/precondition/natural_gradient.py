@@ -84,9 +84,18 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             assert all(len(module_partitions[0]) == len(module_partitions[i]) for i in range(1, world_size))
             self.partitioned_modules = [m for partition in module_partitions for m in partition]
             self.num_modules_per_partition = len(module_partitions[0])
+        elif dist.is_initialized(): #if initialized, we do automatically distr model parallelism
+            self.world_rank = dist.get_rank()
+            self.world_size = dist.get_world_size()
+            self.partitions = self.get_distr_prec_partition()
         else:
             self.partitioned_modules = []
             self.num_modules_per_partition = None
+            self.world_rank = 0
+            self.world_size = 100
+            self.partitions = self.get_distr_prec_partition()
+
+        print(self.partitions)
 
         fisher_config = FisherConfig(
             fisher_type=config.fisher_type,
@@ -106,6 +115,77 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.grad_sync_handles = []
         self.grads = []
         self.packed_grads = []
+
+    def get_distr_prec_partition(self): 
+        """
+        this method distributes the workload over the rank for even amount of modules for different fisher shapes (layer-wise even as possible)
+
+        e.g.
+        world_size 5:
+        
+        ResNet18:
+        [[], [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2], [], [], [2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4], []]
+
+        MLP 3 layers:
+        [[], [0, 1, 2], [], [], [], []]
+
+        world_size = 100:
+        ResNet18:
+        [[], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], [], [], [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40], []]
+
+        """
+        len_shapes = len(_module_level_shapes)
+        num_modules = [0]*len_shapes
+        num_params = [0]*len_shapes
+        for enum_shape, shape in enumerate(_module_level_shapes):
+            num_param = 0
+            enum_module = None
+            for enum_module, module in enumerate(self.modules_for(shape)):
+                for p in module.parameters():       
+                    num_param += p.numel()
+            num_modules[enum_shape] = enum_module + 1 if enum_module is not None else 0
+            num_params[enum_shape] = num_param         #another method, split by equal amount of param (not yet implemented)
+
+        partitions = []
+        tot_num_modules = 0
+        tot_num_params = 0
+        for shape in range(len_shapes):
+            partitions.append([0]*num_modules[shape])
+            tot_num_modules += num_modules[shape]
+            tot_num_params += num_params[shape]
+
+        if self.world_size == 1:                    
+            return partitions
+
+        elif self.world_size >= tot_num_modules:
+            rank = 0
+            for shape in range(len_shapes):
+                module_ = None
+                for module_ in range(num_modules[shape]):
+                    partitions[shape][module_] = rank + module_
+                rank += module_ + 1 if module_ is not None else 0
+            return partitions
+            
+        else:
+            split_size = tot_num_modules//self.world_size
+            rank = 0
+            split = split_size
+            tot_module = 0
+            for shape in range(len_shapes):
+                module_ = None
+                for module_ in range(num_modules[shape]):
+                    if tot_module + module_ > split and rank != self.world_size - 1:
+                        rank  += 1
+                        split += split_size
+
+                    partitions[shape][module_] = rank
+                tot_module += module_ + 1 if module_ is not None else 0
+                #print(module_, flush=True)
+
+            return partitions
+            
+
+
 
     def do_forward_and_backward(self, step=None):
         return not self.do_update_curvature(step)
@@ -217,8 +297,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if damping is None:
             damping = self.config.damping
 
-        for shape in _module_level_shapes:
-            for name, module in self.named_modules_for(shape):
+        for enum_shape, shape in enumerate(_module_level_shapes):
+            for enum_modules, name_module in enumerate(self.named_modules_for(shape)):
+                name, module = name_module
                 if module_name is not None:
                     if name != module_name:
                         continue
@@ -229,31 +310,32 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         modified_partition_id = (partition_id + rank_in_group) % len(self.config.module_partitions)
                         module = self.config.module_partitions[modified_partition_id][module_id_in_partition]
 
-                matrix = self._get_module_symmatrix(module, shape)
-                if matrix is None:
-                    continue
+                if self.world_rank == self.partitions[enum_shape][enum_modules]:
+                    matrix = self._get_module_symmatrix(module, shape)
+                    if matrix is None:
+                        continue
 
-                event = f'inv_{shape}'
-                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                    for A_or_B in kron:
-                        event += f'_{A_or_B}'
+                    event = f'inv_{shape}'
+                    if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                        for A_or_B in kron:
+                            event += f'_{A_or_B}'
 
-                with nvtx_range(event + self.nvtx_tag(name)):
-                    if self.is_module_for_inv_and_precondition(module):
-                        if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                            matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
-                        else:
-                            matrix.update_inv(damping)
-
-                    if zero_curvature:
-                        with torch.no_grad():
+                    with nvtx_range(event + self.nvtx_tag(name)):
+                        if self.is_module_for_inv_and_precondition(module):
                             if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                                if 'A' in kron:
-                                    matrix.A.mul_(0)
-                                if 'B' in kron:
-                                    matrix.B.mul_(0)
+                                matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
                             else:
-                                matrix.mul_(0)
+                                matrix.update_inv(damping)
+
+                        if zero_curvature:
+                            with torch.no_grad():
+                                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                                    if 'A' in kron:
+                                        matrix.A.mul_(0)
+                                    if 'B' in kron:
+                                        matrix.B.mul_(0)
+                                else:
+                                    matrix.mul_(0)
 
                 if module_name is not None:
                     break
@@ -274,7 +356,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 if not self.is_module_for_inv_and_precondition(module):
                     continue
                 self._precondition_module(module, shape, vectors, grad_scale=grad_scale, use_inv=use_inv)
-        params = [p for p in self.parameters_for(SHAPE_FULL)]
+        params = [p for p in self.parameters_for(SHAPE_FULL)]   #Not parallelizable
         if len(params) > 0:
             fisher = self._get_full_fisher()
             assert fisher is not None, f'Fisher of shape {SHAPE_FULL} has not been calculated.'
