@@ -95,8 +95,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.world_size = 100
             self.partitions = self.get_distr_prec_partition()
 
-        print(self.partitions)
-
         fisher_config = FisherConfig(
             fisher_type=config.fisher_type,
             fisher_shapes=config.fisher_shape,
@@ -180,7 +178,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
                     partitions[shape][module_] = rank
                 tot_module += module_ + 1 if module_ is not None else 0
-                #print(module_, flush=True)
 
             return partitions
             
@@ -310,32 +307,32 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         modified_partition_id = (partition_id + rank_in_group) % len(self.config.module_partitions)
                         module = self.config.module_partitions[modified_partition_id][module_id_in_partition]
 
-                if self.world_rank == self.partitions[enum_shape][enum_modules]:
-                    matrix = self._get_module_symmatrix(module, shape)
-                    if matrix is None:
-                        continue
+                #if self.world_rank == self.partitions[enum_shape][enum_modules]:
+                matrix = self._get_module_symmatrix(module, shape)
+                if matrix is None:
+                    continue
 
-                    event = f'inv_{shape}'
-                    if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                        for A_or_B in kron:
-                            event += f'_{A_or_B}'
+                event = f'inv_{shape}'
+                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                    for A_or_B in kron:
+                        event += f'_{A_or_B}'
 
-                    with nvtx_range(event + self.nvtx_tag(name)):
-                        if self.is_module_for_inv_and_precondition(module):
+                with nvtx_range(event + self.nvtx_tag(name)):
+                    if self.is_module_for_inv_and_precondition(module):
+                        if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                            matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
+                        else:
+                            matrix.update_inv(damping)
+
+                    if zero_curvature:
+                        with torch.no_grad():
                             if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                                matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
+                                if 'A' in kron:
+                                    matrix.A.mul_(0)
+                                if 'B' in kron:
+                                    matrix.B.mul_(0)
                             else:
-                                matrix.update_inv(damping)
-
-                        if zero_curvature:
-                            with torch.no_grad():
-                                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                                    if 'A' in kron:
-                                        matrix.A.mul_(0)
-                                    if 'B' in kron:
-                                        matrix.B.mul_(0)
-                                else:
-                                    matrix.mul_(0)
+                                matrix.mul_(0)
 
                 if module_name is not None:
                     break
