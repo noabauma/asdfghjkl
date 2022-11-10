@@ -497,8 +497,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             modules.append(module)
         handles = []
         for shape in _module_level_shapes:
+            if shape == SHAPE_KFE:
+                continue
             keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
-            print("@@@ keys_list: ", shape, keys_list)
             for keys in keys_list:
                 handles += self.fisher_maker.reduce_fisher(modules,
                                                            *keys,
