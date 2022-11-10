@@ -11,7 +11,7 @@ from ..core import module_wise_assignments, modules_to_assign
 from ..matrices import *
 from ..symmatrix import SymMatrix
 from ..vector import ParamVector
-from ..fisher import LOSS_CROSS_ENTROPY, get_fisher_maker, FisherConfig
+from ..fisher import LOSS_CROSS_ENTROPY, get_fisher_maker, FisherConfig, get_fisher_tensor
 from .prec_grad_maker import PreconditionedGradientMaker, PreconditionedGradientConfig
 
 _normalizations = (nn.BatchNorm1d, nn.BatchNorm2d)
@@ -114,6 +114,23 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.grad_sync_handles = []
         self.grads = []
         self.packed_grads = []
+
+    def get_fisher_from_model(self):
+        """
+        returns a list of all the tensors of the FIM
+        """
+        tensor_list = []
+        for shape in _module_level_shapes:
+            if shape == SHAPE_KFE: #TODO KFE atm not supported!
+                continue
+            keys_list = self._keys_list_from_shape(shape)
+            for module in self.modules_for(shape):
+                for keys in keys_list:
+                    tensor = get_fisher_tensor(module, *keys)
+                if tensor is None:
+                    continue
+                tensor_list.append(tensor)
+        return tensor_list
 
     def get_distr_prec_partition(self): 
         """
@@ -497,7 +514,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             modules.append(module)
         handles = []
         for shape in _module_level_shapes:
-            if shape == SHAPE_KFE:
+            if shape == SHAPE_KFE: #TODO KFE atm not supported!
                 continue
             keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
             for keys in keys_list:
