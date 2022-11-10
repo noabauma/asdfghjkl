@@ -366,7 +366,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 vectors.mul_(grad_scale)
             fisher.mvp(vectors=vectors, use_inv=use_inv, inplace=True)
 
-        # all_reduce all the grads after preconditioning them (Basic DDP. Will be changed when DP & MP)
+        # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
         if dist.is_initialized():
             self.all_reduce_undivided_grad(async_op=False)
 
@@ -489,8 +489,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def all_reduce_undivided_curvature(self, module_name=None, kron=None, diag=None, with_grad=False):
         modules = []
         for name, module in self.named_modules_for_curvature:
-            if module in self.partitioned_modules:
-                continue
+            if self.config.module_partitions is not None:
+                if module in self.partitioned_modules:
+                    continue
             if module_name is not None and name != module_name:
                 continue
             modules.append(module)
