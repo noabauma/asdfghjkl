@@ -93,7 +93,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.partitioned_modules = []
             self.num_modules_per_partition = None
             self.world_rank = 0
-            self.world_size = 100
+            self.world_size = 1
             self.partitions = self.get_distr_prec_partition()
 
         fisher_config = FisherConfig(
