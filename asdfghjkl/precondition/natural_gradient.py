@@ -284,6 +284,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                            damping=self.config.damping
                                            )
 
+        self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature TODO
+
     @nvtx_range('update_inv')
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
         if not self.do_accumulate:
@@ -363,6 +365,10 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             if grad_scale != 1:
                 vectors.mul_(grad_scale)
             fisher.mvp(vectors=vectors, use_inv=use_inv, inplace=True)
+
+        # all_reduce all the grads after preconditioning them (Basic DDP. Will be changed when DP & MP)
+        if dist.is_initialized():
+            self.all_reduce_undivided_grad(async_op=False)
 
     def _precondition_module(self, module, shape=None, vectors: ParamVector = None,
                             vec_weight: torch.Tensor = None, vec_bias: torch.Tensor = None,
