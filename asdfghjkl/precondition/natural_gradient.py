@@ -85,6 +85,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.partitioned_modules = [m for partition in module_partitions for m in partition]
             self.num_modules_per_partition = len(module_partitions[0])
         elif dist.is_initialized(): #if initialized, we do automatically distr model parallelism
+            self.partitioned_modules = []
             self.world_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
             self.partitions = self.get_distr_prec_partition()
@@ -489,15 +490,15 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def all_reduce_undivided_curvature(self, module_name=None, kron=None, diag=None, with_grad=False):
         modules = []
         for name, module in self.named_modules_for_curvature:
-            if self.config.module_partitions is not None:
-                if module in self.partitioned_modules:
-                    continue
+            if module in self.partitioned_modules:
+                continue
             if module_name is not None and name != module_name:
                 continue
             modules.append(module)
         handles = []
         for shape in _module_level_shapes:
             keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
+            print("@@@ keys_list: ", keys_list)
             for keys in keys_list:
                 handles += self.fisher_maker.reduce_fisher(modules,
                                                            *keys,
