@@ -389,7 +389,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
         if dist.is_initialized():
-            self.all_reduce_undivided_grad(async_op=False)
+            self.all_reduce_all_grad(async_op=False)
 
     def _precondition_module(self, module, shape=None, vectors: ParamVector = None,
                             vec_weight: torch.Tensor = None, vec_bias: torch.Tensor = None,
@@ -601,6 +601,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def all_reduce_no_curvature_grad(self, async_op=False):
         module_list = nn.ModuleList([m for m in self.model.modules()
                                      if len(list(m.children())) == 0 and m not in self.modules_for_curvature])
+        self._all_reduce_grad(module_list, async_op=async_op)
+
+    @nvtx_range('all_reduce_all_grad')
+    def all_reduce_all_grad(self, async_op=False):
+        module_list = nn.ModuleList([m for m in self.model.modules()])
         self._all_reduce_grad(module_list, async_op=async_op)
 
     def _all_reduce_grad(self, module: nn.Module, async_op=False):
