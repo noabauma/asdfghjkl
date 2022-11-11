@@ -11,7 +11,7 @@ from ..core import module_wise_assignments, modules_to_assign
 from ..matrices import *
 from ..symmatrix import SymMatrix
 from ..vector import ParamVector
-from ..fisher import LOSS_CROSS_ENTROPY, get_fisher_maker, FisherConfig, get_fisher_tensor
+from ..fisher import LOSS_CROSS_ENTROPY, get_fisher_maker, FisherConfig
 from .prec_grad_maker import PreconditionedGradientMaker, PreconditionedGradientConfig
 
 _normalizations = (nn.BatchNorm1d, nn.BatchNorm2d)
@@ -126,7 +126,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             keys_list = self._keys_list_from_shape(shape)
             for module in self.modules_for(shape):
                 for keys in keys_list:
-                    tensor = get_fisher_tensor(module, *keys)
+                    tensor = self.fisher_maker.get_fisher_tensor(module, *keys)
                 if tensor is None:
                     continue
                 tensor_list.append(tensor)
