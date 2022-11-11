@@ -304,8 +304,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                            damping=self.config.damping
                                            )
 
-        #if self.do_accumulate:
-        #    self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
+        if self.do_accumulate:
+            self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
 
     @nvtx_range('update_inv')
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
