@@ -388,8 +388,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             fisher.mvp(vectors=vectors, use_inv=use_inv, inplace=True)
 
         # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
-        if dist.is_initialized():
-            self.all_reduce_undivided_grad(async_op=False)
+        #if dist.is_initialized():
+        #    self.all_reduce_undivided_grad(async_op=False)
 
     def _precondition_module(self, module, shape=None, vectors: ParamVector = None,
                             vec_weight: torch.Tensor = None, vec_bias: torch.Tensor = None,
