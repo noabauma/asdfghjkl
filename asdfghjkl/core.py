@@ -28,7 +28,7 @@ def extend(model,
     stream_cxt = torch.cuda.stream(stream) if torch.cuda.is_available() and stream is not None else nullcontext()
 
     try:
-        for module, _op_names in module_wise_assignments(model, *op_names, ignore_modules=ignore_modules, map_rule=map_rule):
+        for module, _op_names in module_wise_assignments(model, *op_names, ignore_modules=ignore_modules, map_rule=map_rule):   #TODO this has to be model-parallelized (atm only for KFAC and Shampoo)
             if len(_op_names) == 0:
                 # no operation is assigned
                 continue

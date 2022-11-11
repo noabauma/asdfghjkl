@@ -157,8 +157,10 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             num_param = 0
             enum_module = None
             for enum_module, module in enumerate(self.modules_for(shape)):
-                for p in module.parameters():       
-                    num_param += p.numel()
+                for p in module.parameters():
+                    if p.requires_grad:     
+                        num_param += p.numel()
+                    
             num_modules[enum_shape] = enum_module + 1 if enum_module is not None else 0
             num_params[enum_shape] = num_param         #another method, split by equal amount of param (not yet implemented)
 
@@ -301,8 +303,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                            calc_inv=not self.do_accumulate,
                                            damping=self.config.damping
                                            )
-
-        #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature TODO
+                                           
+        if self.do_accumulate:
+            self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
 
     @nvtx_range('update_inv')
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):

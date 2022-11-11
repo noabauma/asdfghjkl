@@ -8,6 +8,8 @@ from ..matrices import *
 from ..symmatrix import *
 from ..vector import ParamVector
 
+import torch.distributed as dist
+
 # compute no-centered covariance
 OP_FULL_COV = 'full_cov'  # full covariance
 OP_FULL_CVP = 'full_cvp'  # full covariance-vector product
@@ -255,6 +257,21 @@ class Operation:
                 A = self.cov_kron_A(module, in_data).mul_(cov_scale)
                 del in_data
                 B = self.cov_kron_B(module, out_grads).mul_(cov_scale)
+
+                #Here reduce all A & B?
+                if dist.is_initialized():
+                    A_dim = A.shape[0]
+                    B_dim = B.shape[0]
+                    packed = torch.cat((A.flatten(), B.flatten())).cuda()
+                    dist.all_reduce(packed, op=dist.ReduceOp.AVG)
+                    A_, B_ = torch.split(packed, [A.numel(), B.numel()])
+
+                    A = A_.reshape((A_dim, A_dim))
+                    B = B_.reshape((B_dim, B_dim))
+
+                    del packed, A_, B_
+                
+
                 damping_A, damping_B = self.cov_kron_damping(A, B)
                 A_inv = cholesky_inv(A, damping_A)
                 del A
