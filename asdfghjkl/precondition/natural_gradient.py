@@ -606,14 +606,14 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     @nvtx_range('all_reduce_all_grad')
     def all_reduce_all_grad(self, async_op=False):
         module_list = nn.ModuleList([m for m in self.model.modules()])
-        self._all_reduce_grad(module_list, async_op=async_op)
+        self._all_reduce_grad(module_list, async_op=async_op, op=dist.ReduceOp.AVG)
 
-    def _all_reduce_grad(self, module: nn.Module, async_op=False):
+    def _all_reduce_grad(self, module: nn.Module, async_op=False, op=dist.ReduceOp.SUM):
         grads = [p.grad for p in module.parameters() if p.grad is not None]
         if len(grads) == 0:
             return
         packed_tensor = parameters_to_vector(grads)
-        handle = dist.all_reduce(packed_tensor, group=self.config.sync_group, async_op=async_op)
+        handle = dist.all_reduce(packed_tensor, op=op, group=self.config.sync_group, async_op=async_op)
         if async_op:
             self.grad_sync_handles.append(handle)
             self.grads.append(grads)
