@@ -35,14 +35,11 @@ def get_total_time_in_event(target_table_name, event_start, event_end):
       ON target.correlationId = runtime.correlationId
     WHERE runtime.start BETWEEN {event_start} AND {event_end};
     """
-    try:
-        df = pd.read_sql(sql, con)
-        time = df['total_time'].iloc[0]
-        if time is None:
-            return 0
-        return time
-    except:
+    df = pd.read_sql(sql, con)
+    time = df['total_time'].iloc[0]
+    if time is None:
         return 0
+    return time
 
 
 def get_runtime_in_event(event_start, event_end):
@@ -85,15 +82,13 @@ def main():
     print(f'Collecting time for {event_texts}')
     for txt in event_texts:
         event_start_end = get_event_start_end(txt)
-        Nones = any([s == None or e == None for s, e in event_start_end])
-        if len(event_start_end) == 0 or Nones:
+        if len(event_start_end) == 0:
             continue
         index.append(txt)
         if args.ignore_first_event:
             # ignore first NVTX event
             event_start_end = event_start_end[1:]
-        #print("@@@", txt, ": ", event_start_end, "@@@")
-
+        print("@@@", txt, ": ", event_start_end, "@@@")
         times['ncalls'].append(len(event_start_end))
         for key, f in {'runtime': get_runtime_in_event,
                        'kernel': get_kernel_time_in_event,
@@ -122,7 +117,7 @@ def main():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('sqlite_path', type=str)
-    parser.add_argument('--pickle_path', type=str, default='data/nvtx_events.pickle')
+    parser.add_argument('--pickle_path', type=str, default='nvtx_events.pickle')
     parser.add_argument('--ignore_first_event', action='store_true')
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)

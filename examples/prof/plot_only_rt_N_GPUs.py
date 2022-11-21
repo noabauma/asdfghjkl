@@ -10,7 +10,7 @@ colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 def plot_time_bar(ax, order='ms', rate=10**6):
     ax.set_ylabel(f'Time [{order}]')
-    bottoms = {key: 0. for key in ['runtime', 'kernel', 'memcpy']}
+    bottoms = {key: 0. for key in ['runtime']}
     for i, event in enumerate(events):
         color = colors[i]
         for key in bottoms:

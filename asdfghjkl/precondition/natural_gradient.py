@@ -3,10 +3,11 @@ from dataclasses import dataclass
 
 import torch
 from torch import nn
+from torch.cuda import nvtx
 import torch.distributed as dist
 from torch.nn.utils import parameters_to_vector, vector_to_parameters
 
-from ..utils import nvtx_range
+#from ..utils import nvtx_range
 from ..core import module_wise_assignments, modules_to_assign
 from ..matrices import *
 from ..symmatrix import SymMatrix
@@ -284,7 +285,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def do_accumulate(self):
         return self.config.ema_decay != _invalid_ema_decay
 
-    @nvtx_range('update_curvature')
+    @nvtx.range('update_curvature')
     def update_curvature(self):
         config = self.config
         fisher_maker = self.fisher_maker
@@ -307,7 +308,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if self.do_accumulate:
             self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
 
-    @nvtx_range('update_inv')
+    @nvtx.range('update_inv')
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
         if not self.do_accumulate:
             return
@@ -340,7 +341,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     for A_or_B in kron:
                         event += f'_{A_or_B}'
 
-                with nvtx_range(event + self.nvtx_tag(name)):
+                with nvtx.range(event + self.nvtx_tag(name)):
                     if self.is_module_for_inv_and_precondition(module):
                         if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
                             matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
@@ -367,7 +368,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 with torch.no_grad():
                     fisher.mul_(0)
 
-    @nvtx_range('precondition')
+    @nvtx.range('precondition')
     def precondition(self, vectors: ParamVector = None, grad_scale=None, use_inv=True):
         if grad_scale is None:
             grad_scale = self.config.grad_scale
@@ -435,7 +436,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             rank = dist.get_rank(self.config.sync_group)
             return module in module_partitions[rank]
 
-    @nvtx_range('sync_curvature')
+    @nvtx.range('sync_curvature')
     def sync_curvature(self, module_name=None, kron=None, diag=None, with_grad=False, enabled=True, async_op=False):
         if not enabled:
             return
@@ -466,7 +467,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.all_gather_grad(async_op=async_op)
         self.all_reduce_no_curvature_grad(async_op=async_op)
 
-    @nvtx_range('reduce_scatter_curvature')
+    @nvtx.range('reduce_scatter_curvature')
     def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=False):
         module_partitions = self.config.module_partitions
         assert module_partitions is not None, 'module_partitions is not specified.'
@@ -481,7 +482,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                                                    async_op=True)
         return handles
 
-    @nvtx_range('reduce_curvature')
+    @nvtx.range('reduce_curvature')
     def reduce_curvature(self, module_name, kron=None, diag=None, with_grad=False):
         module_partitions = self.config.module_partitions
         assert module_partitions is not None, 'module_partitions is not specified.'
@@ -506,7 +507,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                                        async_op=True)
         return handles
 
-    @nvtx_range('all_reduce_undivided_curvature')
+    @nvtx.range('all_reduce_undivided_curvature')
     def all_reduce_undivided_curvature(self, module_name=None, kron=None, diag=None, with_grad=False):
         modules = []
         for name, module in self.named_modules_for_curvature:
@@ -548,11 +549,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             assert all(w_or_b in ['weight', 'bias'] for w_or_b in diag)
             return [['diag', w_or_b] for w_or_b in diag]
 
-    @nvtx_range('reduce_scatter_grad')
+    @nvtx.range('reduce_scatter_grad')
     def reduce_scatter_grad(self, async_op=False):
         self._scatter_or_gather_grad('scatter', async_op=async_op)
 
-    @nvtx_range('all_gather_grad')
+    @nvtx.range('all_gather_grad')
     def all_gather_grad(self, async_op=False):
         self._scatter_or_gather_grad('gather', async_op=async_op)
 
@@ -591,19 +592,19 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     for j in range(world_size):
                         vector_to_parameters(tensor_list[j], grads_list[j])
 
-    @nvtx_range('all_reduce_undivided_grad')
+    @nvtx.range('all_reduce_undivided_grad')
     def all_reduce_undivided_grad(self, async_op=False):
         assert dist.is_initialized()
         module_list = nn.ModuleList([m for m in self.modules_for_curvature if m not in self.partitioned_modules])
         self._all_reduce_grad(module_list, async_op=async_op)
 
-    @nvtx_range('all_reduce_no_curvature_grad')
+    @nvtx.range('all_reduce_no_curvature_grad')
     def all_reduce_no_curvature_grad(self, async_op=False):
         module_list = nn.ModuleList([m for m in self.model.modules()
                                      if len(list(m.children())) == 0 and m not in self.modules_for_curvature])
         self._all_reduce_grad(module_list, async_op=async_op)
 
-    @nvtx_range('all_reduce_all_grad')
+    @nvtx.range('all_reduce_all_grad')
     def all_reduce_all_grad(self, async_op=False):
         module_list = nn.ModuleList([m for m in self.model.modules()])
         self._all_reduce_grad(module_list, async_op=async_op, op=dist.ReduceOp.AVG)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Dict
 
 import torch.nn as nn
+from torch.cuda import nvtx
 from .. import GradientMaker
 
 
@@ -75,13 +76,18 @@ class PreconditionedGradientMaker(GradientMaker):
         self._startup()
 
         if self.do_forward_and_backward(step):
+            @nvtx.range('forward')
             self.forward()
+            @nvtx.range('forward')
             self.backward()
         if self.do_update_curvature(step):
+            @nvtx.range('update_curvature')
             self.update_curvature()
         if self.do_update_preconditioner(step):
+            @nvtx.range('update_preconditioner')
             self.update_preconditioner()
 
+        @nvtx.range('precondition')
         self.precondition()
 
         self._teardown()
