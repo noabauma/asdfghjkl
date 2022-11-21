@@ -76,19 +76,24 @@ class PreconditionedGradientMaker(GradientMaker):
         self._startup()
 
         if self.do_forward_and_backward(step):
-            @nvtx.range('forward')
+            @nvtx.range_push('forward')
             self.forward()
-            @nvtx.range('forward')
+            @nvtx.range_pop()
+            @nvtx.range_push('backward')
             self.backward()
+            @nvtx.range_pop()
         if self.do_update_curvature(step):
-            @nvtx.range('update_curvature')
+            @nvtx.range_push('update_curvature')
             self.update_curvature()
+            @nvtx.range_pop()
         if self.do_update_preconditioner(step):
-            @nvtx.range('update_preconditioner')
+            @nvtx.range_push('update_preconditioner')
             self.update_preconditioner()
+            @nvtx.range_pop()
 
-        @nvtx.range('precondition')
+        @nvtx.range_push('precondition')
         self.precondition()
+        @nvtx.range_pop()
 
         self._teardown()
 
