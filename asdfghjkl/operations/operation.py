@@ -260,16 +260,17 @@ class Operation:
 
                 #Here reduce all A & B?
                 if dist.is_initialized():
-                    A_dim = A.shape[0]
-                    B_dim = B.shape[0]
-                    packed = torch.cat((A.flatten(), B.flatten())).cuda()
-                    dist.all_reduce(packed, op=dist.ReduceOp.AVG)
-                    A_, B_ = torch.split(packed, [A.numel(), B.numel()])
+                    with nvtx.range('all_reduce_A_B'):
+                        A_dim = A.shape[0]
+                        B_dim = B.shape[0]
+                        packed = torch.cat((A.flatten(), B.flatten())).cuda()
+                        dist.all_reduce(packed, op=dist.ReduceOp.AVG)
+                        A_, B_ = torch.split(packed, [A.numel(), B.numel()])
 
-                    A = A_.reshape((A_dim, A_dim))
-                    B = B_.reshape((B_dim, B_dim))
+                        A = A_.reshape((A_dim, A_dim))
+                        B = B_.reshape((B_dim, B_dim))
 
-                    del packed, A_, B_
+                        del packed, A_, B_
                 
 
                 damping_A, damping_B = self.cov_kron_damping(A, B)
