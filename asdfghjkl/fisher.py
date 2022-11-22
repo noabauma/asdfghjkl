@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch import Tensor
 import torch.nn as nn
+from torch.cuda import nvtx
 import torch.nn.functional as F
 import torch.distributed as dist
 
@@ -65,6 +66,7 @@ class FisherMaker(GradientMaker):
     def do_local_accumulate(self) -> bool:
         raise NotImplementedError
 
+    @nvtx.range('forward_and_backward')
     def forward_and_backward(self,
                              data_size=_invalid_data_size,
                              scale=None,

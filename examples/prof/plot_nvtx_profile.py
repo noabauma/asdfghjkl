@@ -109,6 +109,7 @@ if __name__ == '__main__':
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
+    #parser.add_argument('--known_blocking_comm', type=str, default=None)
     args = parser.parse_args()
 
     fig, ax = plt.subplots()
