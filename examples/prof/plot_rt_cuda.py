@@ -31,8 +31,8 @@ def main():
     plot_time_bar(ax)
 
     plt.tight_layout()
-    plt.savefig(args.fig_path, bbox_inches='tight')
-
+    #plt.savefig(args.fig_path, bbox_inches='tight')
+    plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
