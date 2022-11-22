@@ -60,6 +60,15 @@ def main():
         if args.event_keywords is not None:
             warnings.warn('As event_texts is specified, event_keywords will be ignored.')
 
+    if args.known_blocking_comm is not None:
+        assert args.known_blocking_comm in event_texts, "{args.known_blocking_comm} not in {event_texts}"
+
+        event_start_end = get_event_start_end(args.known_blocking_comm)
+
+        shift = 0#event_start_end[0][1]  # not perfect, idk why. TODO check why.
+
+    
+
     warmup_start = 0
 
     times = dict()
@@ -90,7 +99,7 @@ def main():
             event_start_end = event_start_end[enum:]
         
         for i in range(len(event_start_end)):
-            event_start_end[i] = (event_start_end[i][0]/1e6, (event_start_end[i][1] - event_start_end[i][0])/1e6)
+            event_start_end[i] = ((event_start_end[i][0] - shift)/1e6, (event_start_end[i][1] - event_start_end[i][0])/1e6)
 
         times[txt] = event_start_end
 
@@ -109,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
-    #parser.add_argument('--known_blocking_comm', type=str, default=None)
+    parser.add_argument('--known_blocking_comm', type=str, default=None)
     args = parser.parse_args()
 
     fig, ax = plt.subplots()

@@ -87,6 +87,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.num_modules_per_partition = len(module_partitions[0])
         elif dist.is_initialized(): #if initialized, we do automatically distr model parallelism
             self.partitioned_modules = []
+            self.num_modules_per_partition = None
             self.world_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
             self.partitions = self.get_distr_prec_partition()
@@ -285,7 +286,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def do_accumulate(self):
         return self.config.ema_decay != _invalid_ema_decay
 
-    @nvtx.range('update_curvature')
+    #@nvtx.range('update_curvature')
     def update_curvature(self):
         config = self.config
         fisher_maker = self.fisher_maker
@@ -308,7 +309,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if self.do_accumulate:
             self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
 
-    @nvtx.range('update_inv')
+    #@nvtx.range('update_inv')
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
         if not self.do_accumulate:
             return
@@ -368,7 +369,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 with torch.no_grad():
                     fisher.mul_(0)
 
-    @nvtx.range('precondition')
+    #@nvtx.range('precondition')
     def precondition(self, vectors: ParamVector = None, grad_scale=None, use_inv=True):
         if grad_scale is None:
             grad_scale = self.config.grad_scale

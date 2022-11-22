@@ -9,6 +9,10 @@ import torch.nn.parameter
 from torch.nn.parameter import Parameter
 from .prec_grad_maker import PreconditionedGradientMaker, PreconditionedGradientConfig
 
+from torch.cuda import nvtx
+
+import torch.distributed as dist
+
 
 __all__ = ['ShampooGradientMaker', 'ShampooGradientConfig']
 
@@ -46,8 +50,34 @@ class ShampooGradientConfig(PreconditionedGradientConfig):
 class ShampooGradientMaker(PreconditionedGradientMaker):
     def __init__(self, model, config: ShampooGradientConfig):
         super().__init__(model, config)
-        self.preconditioners: List[Preconditioner] = [
-            Preconditioner(p, config) for p in model.parameters() if p.ndim > 1]
+
+        if dist.is_initialized(): #if initialized, we do automatically distr model parallelism
+            self.world_rank = dist.get_rank()
+            self.world_size = dist.get_world_size()
+            self.partitioned_modules = self.get_distr_prec_partition()
+        else:
+            self.world_rank = 0
+            self.world_size = 1
+            self.partitioned_modules = self.get_distr_prec_partition()
+        
+        self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) for p in model.parameters() if p.ndim > 1]
+
+        print(self.preconditioners)
+
+    def get_distr_prec_partition(self):
+
+        num_param = 0
+        num_layers = 0
+        num_shapes = 0
+        for p in self.model.parameters():
+            if p.ndim > 1:
+                num_param += p.numel()
+                num_layers += 1
+                _transformed_shape = _merge_small_dims(p.shape, self.config.block_size)
+                num_shapes += len(_transformed_shape)
+
+
+        
 
     def do_forward_and_backward(self, step=None):
         return True
@@ -71,7 +101,7 @@ class Preconditioner:
         self.param = param
         self._transformed_shape = param.shape
         if config.best_effort_shape_interpretation:
-            self._transformed_shape = _merge_small_dims(param.shape, config.block_size)
+            self._transformed_shape = _merge_small_dims(param.shape, config.block_size) #if block_size invalid: do nothing
 
         self._partitioner = BlockPartitioner(self._transformed_shape, config.block_size)
         shapes = self._partitioner.kronecker_factor_shapes()
