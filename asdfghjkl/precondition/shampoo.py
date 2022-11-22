@@ -67,15 +67,18 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def get_distr_prec_partition(self):
 
         num_param = 0
-        num_layers = 0
+        layers = []
         num_shapes = 0
         for p in self.model.parameters():
             if p.ndim > 1:
                 num_param += p.numel()
-                num_layers += 1
                 _transformed_shape = _merge_small_dims(p.shape, self.config.block_size)
                 num_shapes += len(_transformed_shape)
+                layers.append(_transformed_shape)
+            else:
+                layers.append(p.shape)
 
+        print(layers)
 
         
 
