@@ -10,22 +10,19 @@ from torch.utils.data import RandomSampler, DataLoader
 import torchvision
 from torchvision import transforms
 
-from asdfghjkl import KfacGradientMaker
-from asdfghjkl import SHAPE_KRON
-from asdfghjkl.fisher import LOSS_CROSS_ENTROPY
+import asdfghjkl as asdl
 
 
 def parse_args():
     import argparse
 
     parser = argparse.ArgumentParser(description='kfac')
-    parser.add_argument('--device', default='cuda', type=str)
 
     parser.add_argument('--data-path',
-                        default='/sqfs/work/jh210024/data/ILSVRC2012',
+                        default='/project/g34/imagenet',
                         type=str)
-    parser.add_argument('--batch-size', default=256, type=int)
-    parser.add_argument('--val-batch-size', default=2048, type=int)
+    parser.add_argument('--batch_size', default=256, type=int)
+    parser.add_argument('--val-batch_size', default=2048, type=int)
     parser.add_argument('--label-smoothing', default=0.1, type=float)
 
     parser.add_argument('--epochs', type=int, default=40)
@@ -62,13 +59,13 @@ class Dataset(object):
         self.train_loader = DataLoader(self.train_dataset,
                                        batch_size=self.batch_size,
                                        sampler=self.train_sampler,
-                                       num_workers=4,
+                                       num_workers=12,
                                        pin_memory=True)
         self.val_sampler = RandomSampler(self.val_dataset)
         self.val_loader = DataLoader(self.val_dataset,
                                      batch_size=self.val_batch_size,
                                      sampler=self.val_sampler,
-                                     num_workers=4,
+                                     num_workers=12,
                                      pin_memory=True)
         self.sampler = None
         self.loader = None
@@ -132,40 +129,25 @@ class Metric(object):
         return f'Loss: {self.loss:.4f}, Acc: {self.accuracy:.4f}'
 
 
-def train(epoch, dataset, model, criterion, opt, kfac, args):
+def train(epoch, dataset, model, criterion, opt, grad_maker, args):
     dataset.train()
     model.train()
 
     lr = opt.param_groups[0]['lr']
-    metric = Metric(args.device)
+    metric = Metric('cuda')
     for i, (inputs, targets) in enumerate(dataset.loader):
-        inputs = inputs.to(args.device)
-        targets = targets.to(args.device)
+        inputs = inputs.cuda()
+        targets = targets.cuda()
         opt.zero_grad(set_to_none=True)
 
-        if args.cov_update_freq != -1 and i % args.cov_update_freq == 0:
-            loss, outputs = kfac.accumulate_curvature(inputs,
-                                                      targets,
-                                                      ema_decay=args.ema_decay,
-                                                      calc_emp_loss_grad=True)
-        else:
-            outputs = model(inputs)
-            loss = criterion(outputs, targets)
-            loss.backward()
+        # y = model(x)
+        # loss = F.cross_entropy(y, t)
+        # loss.backward()
 
-        if args.inv_update_freq != -1 and i % args.inv_update_freq == 0:
-            kfac.update_preconditioner(args.damping)
+        dummy_y = grad_maker.setup_model_call(model, inputs)
+        grad_maker.setup_loss_call(F.cross_entropy, dummy_y, targets)
+        y, loss = grad_maker.forward_and_backward()
 
-        #                              kl_clip
-        # kl_clip: grad *= sqrt(---------------------)
-        #                        |sum(ng*grad)*lr^2|
-        grad = to_vector([p.grad for p in kfac.parameters_for(SHAPE_KRON)])
-        kfac.precondition()
-        ng = to_vector([p.grad for p in kfac.parameters_for(SHAPE_KRON)])
-        vg_sum = ((ng * grad).sum() * lr**2).item()
-        nu = min(1.0, (args.kl_clip / abs(vg_sum))**0.5)
-        for p in kfac.parameters_for(SHAPE_KRON):
-            p.grad.data *= nu
         opt.step()
 
         metric.update(inputs.shape[0], loss, outputs, targets)
@@ -184,8 +166,8 @@ def test(epoch, dataset, model, criterion, args):
 
     with torch.inference_mode():
         for i, (inputs, targets) in enumerate(dataset.loader):
-            inputs = inputs.to(args.device)
-            targets = targets.to(args.device)
+            inputs = inputs.cuda()
+            targets = targets.cuda()
 
             outputs = model(inputs)
             loss = criterion(outputs, targets)
@@ -200,24 +182,24 @@ if __name__ == '__main__':
     print(args)
 
     # ========== DATA ==========
+    print("data load", flush=True)
     dataset = IMAGENET(args)
     criterion = nn.CrossEntropyLoss(label_smoothing=args.label_smoothing)
+    print("data load done", flush=True)
 
     # ========== MODEL ==========
     model = torchvision.models.resnet50(num_classes=dataset.num_classes)
-    model.to(args.device)
+    model.cuda()
 
     # ========== OPTIMIZER ==========
     opt = torch.optim.SGD(model.parameters(),
                           lr=args.lr,
                           momentum=args.momentum,
                           weight_decay=args.weight_decay)
-    kfac = KfacGradientMaker(model,
-                'fisher_emp',
-                             loss_type=LOSS_CROSS_ENTROPY,
-                             ignore_modules=[nn.BatchNorm1d, nn.BatchNorm2d])
-    for module in kfac.modules_for(SHAPE_KRON):
-        print(f"Registered {module}")
+
+    # =========== GRAD MAKER =========
+    config = asdl.NaturalGradientConfig(data_size=args.batch_size, damping=args.damping)
+    grad_maker = asdl.KfacGradientMaker(model, config)
 
     # ========== LEARNING RATE SCHEDULER ==========
     if args.warmup_epochs > 0:
@@ -230,7 +212,8 @@ if __name__ == '__main__':
 
     # ========== TRAINING ==========
     for e in range(args.epochs):
-        train(e, dataset, model, criterion, opt, kfac, args)
+
+        train(e, dataset, model, criterion, opt, grad_maker, args)
         torch.cuda.empty_cache()
         test(e, dataset, model, criterion, args)
         torch.cuda.empty_cache()
