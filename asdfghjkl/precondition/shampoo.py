@@ -51,7 +51,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def __init__(self, model, config: ShampooGradientConfig):
         super().__init__(model, config)
 
-        if dist.is_initialized(): #if initialized, we do automatically distr model parallelism
+        if dist.is_initialized(): #if initialized, we do automatically distr model parallelism (atm only support layer-wise distributed (future maybe dim-wise of each layer parallelized))
             self.world_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
             self.partitioned_modules = self.get_distr_prec_partition()
@@ -60,9 +60,9 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.partitioned_modules = self.get_distr_prec_partition()
         
-        self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) for p in model.parameters() if p.ndim > 1]
+        self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) for i, p in enumerate(model.parameters()) if p.ndim > 1 and self.world_rank == self.partitioned_modules[i]]
 
-        print(self.preconditioners)
+        print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
     def get_distr_prec_partition(self):
 
@@ -75,10 +75,29 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 _transformed_shape = _merge_small_dims(p.shape, self.config.block_size)
                 num_shapes += len(_transformed_shape)
                 layers.append(_transformed_shape)
-            else:
-                layers.append(p.shape)
 
-        print(layers)
+        num_layers = len(layers)
+
+        partitions = [0]*num_layers
+        if self.world_size == 0:
+            return partitions
+        elif num_layers > self.world_size:
+            split = num_layers//self.world_size
+            split_counter = split
+            rank = 0
+            for i in range(num_layers):
+                if i >= split_counter and rank != self.world_size - 1:
+                    split_counter += split
+                    rank += 1
+                
+                partitions[i] = rank
+            return partitions
+        else: #atm, we do not support multiple gpus for one layer
+            rank = 0
+            for i in range(num_layers):
+                partitions[i] = i
+                
+            return partitions
 
         
 
