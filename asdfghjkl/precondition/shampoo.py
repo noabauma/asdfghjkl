@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.partitioned_modules = self.get_distr_prec_partition()
         
-        self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) p in model.parameters() if p.ndim > 1 and self.world_rank == self.partitioned_modules[i]]
+        #self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) p in model.parameters() if p.ndim > 1 and self.world_rank == self.partitioned_modules[i]]
 
         self.preconditioners = []
         layer = 0
