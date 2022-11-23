@@ -9,6 +9,8 @@ import torch.nn.parameter
 from torch.nn.parameter import Parameter
 from .prec_grad_maker import PreconditionedGradientMaker, PreconditionedGradientConfig
 
+from torch.nn.utils import parameters_to_vector, vector_to_parameters
+
 from torch.cuda import nvtx
 
 import torch.distributed as dist
@@ -45,6 +47,7 @@ class ShampooGradientConfig(PreconditionedGradientConfig):
     # 12 x [1024, 512] L and R statistics. Disabled by default which results in
     # Shampoo constructing statistics [4, 4], [3, 3], [1024, 1024], [512, 512].
     best_effort_shape_interpretation: bool = False
+    sync_group: dist.ProcessGroup = None
 
 
 class ShampooGradientMaker(PreconditionedGradientMaker):
@@ -54,25 +57,23 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         if dist.is_initialized(): #if initialized, we do automatically distr model parallelism (atm only support layer-wise distributed (future maybe dim-wise of each layer parallelized))
             self.world_rank = dist.get_rank()
             self.world_size = dist.get_world_size()
-            self.partitioned_modules = self.get_distr_prec_partition()
+            self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 1
-            self.partitioned_modules = self.get_distr_prec_partition()
-        
-        #self.preconditioners: List[Preconditioner] = [Preconditioner(p, config) p in model.parameters() if p.ndim > 1 and self.world_rank == self.partitioned_modules[i]]
+            self.world_size = 3
+            self.splits, self.partitioned_modules = self.get_distr_prec_partition()
+
+        print(self.splits, "\n", self.partitioned_modules)
 
         self.preconditioners = []
         layer = 0
         for p in model.parameters():
-            if p.ndim > 1:
+            if p.ndim > 1: # p.requires_grad and p.grad is not None how about checking those as well?
                 if self.world_rank == self.partitioned_modules[layer]:
                     self.preconditioners.append(Preconditioner(p, config))
                 layer += 1
 
-
-
-        print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
+        #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
     def get_distr_prec_partition(self):
 
@@ -90,31 +91,38 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         partitions = [0]*num_layers
         if self.world_size == 0:
-            return partitions
+            return [], partitions
         elif num_layers > self.world_size:
-            split = num_layers//self.world_size
-            split_counter = split
+            split_size = num_layers//self.world_size
+            split_counter = split_size
+            split_list = [split_counter]
             rank = 0
             for i in range(num_layers):
                 if i >= split_counter and rank != self.world_size - 1:
-                    split_counter += split
+                    split_counter += split_size
                     rank += 1
+                    split_list.append(split_counter)
                 
                 partitions[i] = rank
-            return partitions
+            return split_list[:-1], partitions
         else: #atm, we do not support multiple gpus for one layer
             rank = 0
             for i in range(num_layers):
                 partitions[i] = i
                 
-            return partitions
+            return partitions[1:-1], partitions
 
         
 
     def do_forward_and_backward(self, step=None):
         return True
 
+
     def update_curvature(self):
+        # TODO: reduce scatter grads here or after backward pass?
+        if self.world_size > 1:
+            self.reduce_scatter_grads()
+
         for preconditioner in self.preconditioners:
             preconditioner.update_statistics()
 
@@ -125,6 +133,41 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def precondition(self):
         for preconditioner in self.preconditioners:
             preconditioner.precondition()
+
+        # TODO: all_scatter grads here?
+
+    def reduce_scatter_grads(self, async_op=False):
+        assert not async_op, "async_op not yet implemented"
+        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
+
+        group = self.config.sync_group
+
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1]
+
+        grads_list = []
+        tensor_list = []
+        for i in range(len(self.splits)):
+            if i == 0:
+                grads_split = grads[:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            elif i == len(self.splits) - 1:
+                grads_split = grads[self.splits[i]:]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            else:
+                grads_split = grads[self.splits[i-1]:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+
+        handle = dist.reduce_scatter(tensor_list[self.world_rank], tensor_list, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
+
+        vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
+
+        for i, preconditioner in enumerate(self.preconditioners):
+            preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
+
+
 
 
 class Preconditioner:
