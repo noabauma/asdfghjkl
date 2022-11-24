@@ -63,10 +63,13 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
+        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
+
 
         self.preconditioners = []
         layer = 0
         for p in model.parameters():
+            print(p.shape)
             if p.ndim > 1: # p.requires_grad and p.grad is not None how about checking those as well?
                 if self.world_rank == self.partitioned_modules[layer]:
                     self.preconditioners.append(Preconditioner(p, config))
@@ -75,7 +78,6 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         print(self.splits, "\n", self.partitioned_modules)
         #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
-        self.grads_list, self.tensor_list = self.get_grads_and_tensor_list()
 
     def get_distr_prec_partition(self):
         """
@@ -133,32 +135,6 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 
             return partitions[1:], partitions
 
-    def get_grads_and_tensor_list(self):
-        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
-
-        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
-
-        print(grads)
-
-        grads_list = []
-        tensor_list = []
-        for i in range(len(self.splits)):
-            if i == 0:
-                grads_split = grads[:self.splits[i]]
-                grads_list.append(grads_split)
-                tensor_list.append(parameters_to_vector(grads_split))
-            elif len(self.splits) > 1:
-                grads_split = grads[self.splits[i-1]:self.splits[i]]
-                grads_list.append(grads_split)
-                tensor_list.append(parameters_to_vector(grads_split))
-            
-            if i == len(self.splits) - 1:
-                grads_split = grads[self.splits[i]:]
-                grads_list.append(grads_split)
-                tensor_list.append(parameters_to_vector(grads_split))
-
-        return grads_list, tensor_list
-
         
 
     def do_forward_and_backward(self, step=None):
@@ -186,8 +162,26 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.all_gather_grads()
 
     def reduce_scatter_grads(self):
-        grads_list = self.grads_list
-        tensor_list = self.tensor_list
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
+
+        print(grads)
+
+        grads_list = []
+        tensor_list = []
+        for i in range(len(self.splits)):
+            if i == 0:
+                grads_split = grads[:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            elif len(self.splits) > 1:
+                grads_split = grads[self.splits[i-1]:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            
+            if i == len(self.splits) - 1:
+                grads_split = grads[self.splits[i]:]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
             
         group = self.config.sync_group
 
@@ -209,8 +203,26 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         #    preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
 
     def all_gather_grads(self):
-        grads_list = self.grads_list
-        tensor_list = self.tensor_list
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
+
+        print(grads)
+
+        grads_list = []
+        tensor_list = []
+        for i in range(len(self.splits)):
+            if i == 0:
+                grads_split = grads[:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            elif len(self.splits) > 1:
+                grads_split = grads[self.splits[i-1]:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            
+            if i == len(self.splits) - 1:
+                grads_split = grads[self.splits[i]:]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
 
         group = self.config.sync_group
 
