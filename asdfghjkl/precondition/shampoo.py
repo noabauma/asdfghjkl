@@ -183,7 +183,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             
         group = self.config.sync_group
 
-        print("before scatter: ", grads, "\n")
+        #print("before scatter: ", grads, "\n")
 
         handle_list = []
         for i in range(self.world_size):
@@ -195,10 +195,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
-        print("after scatter: ", grads, "\n")
-
-        #for i, preconditioner in enumerate(self.preconditioners):                   #not needed due to python behaviour
-        #    preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
+        #print("after scatter: ", grads, "\n")
 
     def all_gather_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
@@ -232,12 +229,12 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1]
 
-        print("before gather: ", grads)
+        #print("before gather: ", grads)
 
         for i in range(self.world_size):
             vector_to_parameters(tensor_list[i], grads_list[i])
 
-        print("after gather: ", grads)
+        #print("after gather: ", grads)
 
 
 class Preconditioner:
