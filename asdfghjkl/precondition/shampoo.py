@@ -162,7 +162,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         group = self.config.sync_group
 
-        grads = [p.grad for p in self.model.parameters() if p.ndim > 1]
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
 
         grads_list = []
         tensor_list = []
@@ -202,9 +202,39 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def all_gather_grads(self, async_op=False):
         assert not async_op, "async_op not yet implemented"
 
+        group = self.config.sync_group
 
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
 
+        grads_list = []
+        tensor_list = []
+        for i in range(len(self.splits)):
+            if i == 0:
+                grads_split = grads[:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            elif len(self.splits) > 1:
+                grads_split = grads[self.splits[i-1]:self.splits[i]]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            
+            if i == len(self.splits) - 1:
+                grads_split = grads[self.splits[i]:]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
 
+        prec_grads_list = []
+        for i, preconditioner in enumerate(self.preconditioners):
+            prec_grads_list.append(preconditioner.param.grad)
+        prec_grad_tensor = parameters_to_vector(prec_grads_list)
+
+        dist.all_gather(tensor_list, prec_grad_tensor, group=group, async_op=async_op)
+
+        print("before all grads: ", grads)
+
+        vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
+
+        print("after all grads: ", grads)
 
 
 class Preconditioner:
