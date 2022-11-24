@@ -146,7 +146,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         grads_list = []
         tensor_list = []
-        for i in range(len(self.splits)):
+        for i in range(self.world_size):
             if i == 0:
                 grads_split = grads[:self.splits[i]]
                 grads_list.append(grads_split)
