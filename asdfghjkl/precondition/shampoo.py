@@ -110,7 +110,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             for i in range(num_layers):
                 partitions[i] = i
                 
-            return partitions[1:-1], partitions
+            return partitions[1:], partitions
 
         
 
@@ -159,6 +159,9 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 grads_split = grads[self.splits[i-1]:self.splits[i]]
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
+
+        print(grads_list, "\n")
+        #print(tensor_list, "\n")
 
         handle = dist.reduce_scatter(tensor_list[self.world_rank], tensor_list, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
 
