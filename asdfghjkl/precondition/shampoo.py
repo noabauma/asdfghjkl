@@ -199,8 +199,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         #for i, preconditioner in enumerate(self.preconditioners):                   #not needed due to python behaviour
         #    preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
 
-    def all_gather_grads(self, async_op=False):
-        assert not async_op, "async_op not yet implemented"
+    def all_gather_grads(self):
 
         group = self.config.sync_group
 
@@ -223,17 +222,18 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
 
-        prec_grads_list = []
-        for i, preconditioner in enumerate(self.preconditioners):
-            prec_grads_list.append(preconditioner.param.grad)
-        prec_grad_tensor = parameters_to_vector(prec_grads_list)
+        handle_list = []
+        for i in range(self.world_size):
+            handle = dist.broadcast(tensor_list[i], i, group=group, async_op=True)
+            handle_list.append(handle)
 
-        dist.all_gather(tensor_list, prec_grad_tensor, group=group, async_op=async_op)
+        for handle in handle_list:
+            handle.wait()
 
         print("before all grads: ", grads)
 
         for i in range(self.world__size):
-            vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
+            vector_to_parameters(tensor_list[i], grads_list[i])
 
         print("after all grads: ", grads)
 
