@@ -136,9 +136,9 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def get_grads_and_tensor_list(self):
         assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
 
-        group = self.config.sync_group
-
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
+
+        print(grads)
 
         grads_list = []
         tensor_list = []
@@ -189,6 +189,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         grads_list = self.grads_list
         tensor_list = self.tensor_list
             
+        group = self.config.sync_group
 
         #print("before: ", grads_list, "\n")
 
@@ -210,6 +211,8 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def all_gather_grads(self):
         grads_list = self.grads_list
         tensor_list = self.tensor_list
+
+        group = self.config.sync_group
 
         handle_list = []
         for i in range(self.world_size):
