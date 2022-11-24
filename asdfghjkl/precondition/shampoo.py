@@ -135,7 +135,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             preconditioner.precondition()
 
         # TODO: all_scatter grads here?
-        if self.world_size >:
+        if self.world_size > 1:
             self.all_gather_grads()
 
     def reduce_scatter_grads(self, async_op=False):
@@ -179,7 +179,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def all_gather_grads(self, async_op=False):
         assert not async_op, "async_op not yet implemented"
 
-        
+
 
 
 
