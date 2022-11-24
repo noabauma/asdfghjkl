@@ -63,7 +63,6 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
-        print(self.splits, "\n", self.partitioned_modules)
 
         self.preconditioners = []
         layer = 0
@@ -73,6 +72,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                     self.preconditioners.append(Preconditioner(p, config))
                 layer += 1
 
+        print(self.splits, "\n", self.partitioned_modules)
         #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
         self.grads_list, self.tensor_list = self.get_grads_and_tensor_list()
