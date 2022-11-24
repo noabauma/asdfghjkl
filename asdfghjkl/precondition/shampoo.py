@@ -162,24 +162,17 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 tensor_list.append(parameters_to_vector(grads_split))
             
 
-        if self.world_rank == 0:
-            print("before: ", grads_list, "\n")
-        #print(tensor_list, "\n")
+        print("before: ", grads_list, "\n")
 
         for i in range(self.world_size):
             handle = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
         
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
-        if self.world_rank == 0:
-            print("after: ", grads_list, "\n")
+        print("after: ", grads_list, "\n")
 
-        for i, preconditioner in enumerate(self.preconditioners):
-            if self.world_rank == 0:
-                print("before: ", i, ": ", preconditioner.param.grad)
-            preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
-            if self.world_rank == 0:
-                print("after: ", i, ": ", preconditioner.param.grad)
+        #for i, preconditioner in enumerate(self.preconditioners):                   #not needed due to python behaviour
+        #    preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
 
 
 
