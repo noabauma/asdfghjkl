@@ -69,13 +69,13 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         self.preconditioners = []
         layer = 0
         for p in model.parameters():
-            print(p.shape)
             if p.ndim > 1: # p.requires_grad and p.grad is not None how about checking those as well?
                 if self.world_rank == self.partitioned_modules[layer]:
                     self.preconditioners.append(Preconditioner(p, config))
                 layer += 1
 
-        print(self.splits, "\n", self.partitioned_modules)
+        if self.world_rank == 0:
+            print(self.splits, "\n", self.partitioned_modules)
         #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
 
@@ -164,8 +164,6 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def reduce_scatter_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
 
-        print(grads)
-
         grads_list = []
         tensor_list = []
         for i in range(len(self.splits)):
@@ -185,7 +183,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             
         group = self.config.sync_group
 
-        #print("before: ", grads_list, "\n")
+        print("before scatter: ", grads, "\n")
 
         handle_list = []
         for i in range(self.world_size):
@@ -197,15 +195,13 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
-        #print("after: ", grads_list, "\n")
+        print("after scatter: ", grads, "\n")
 
         #for i, preconditioner in enumerate(self.preconditioners):                   #not needed due to python behaviour
         #    preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
 
     def all_gather_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
-
-        print(grads)
 
         grads_list = []
         tensor_list = []
@@ -236,12 +232,12 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1]
 
-        print("before all grads: ", grads)
+        print("before gather: ", grads)
 
         for i in range(self.world_size):
             vector_to_parameters(tensor_list[i], grads_list[i])
 
-        print("after all grads: ", grads)
+        print("after gather: ", grads)
 
 
 class Preconditioner:
