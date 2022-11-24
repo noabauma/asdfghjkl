@@ -144,7 +144,8 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
     def update_curvature(self):
         # TODO: reduce scatter grads here or after backward pass?
         if self.world_size > 1:
-            self.reduce_scatter_grads()
+            with nvtx.range('reduce_scatter_grads'):
+                self.reduce_scatter_grads()
 
         for preconditioner in self.preconditioners:
             preconditioner.update_statistics()
@@ -159,7 +160,8 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         # TODO: all_scatter grads here?
         if self.world_size > 1:
-            self.all_gather_grads()
+            with nvtx.range('all_gather_grads'):
+                self.all_gather_grads()
 
     def reduce_scatter_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
