@@ -76,6 +76,25 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
     def get_distr_prec_partition(self):
+        """
+        Distributes the workload linearly spaced by the amount of available GPUs
+
+        Will probably be improved in the future for more evenly balanced workload depending on the layer sizes. (or multiple GPUs for one layer)
+
+        e.g.
+
+        3 GPUs for ResNet18:
+        [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2]
+
+        1 GPU for ResNet18:
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        21 or more GPUs for ResNet18:
+        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+
+        2 GPUs for 3 layers MLP:
+        [0,1,1]
+        """
 
         num_param = 0
         layers = []
@@ -138,8 +157,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         if self.world_size > 1:
             self.all_gather_grads()
 
-    def reduce_scatter_grads(self, async_op=False):
-        assert not async_op, "async_op not yet implemented"
+    def reduce_scatter_grads(self):
         assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
 
         group = self.config.sync_group
@@ -166,8 +184,13 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         #print("before: ", grads_list, "\n")
 
+        handle_list = []
         for i in range(self.world_size):
-            handle = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
+            handle = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=True)
+            handle_list.append(handle)
+
+        for handle in handle_list:
+            handle.wait()
         
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
