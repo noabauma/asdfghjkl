@@ -232,7 +232,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         print("before all grads: ", grads)
 
-        for i in range(self.world__size):
+        for i in range(self.world_size):
             vector_to_parameters(tensor_list[i], grads_list[i])
 
         print("after all grads: ", grads)
