@@ -176,6 +176,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             print("before: ", i, ": ", preconditioner.param.grad)
             preconditioner.param.grad.data.copy_(grads_list[self.world_rank][i])
             print("after: ", i, ": ", preconditioner.param.grad)
+            dist.barrier()
 
 
 
