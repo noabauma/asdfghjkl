@@ -76,9 +76,9 @@ class PreconditionedGradientMaker(GradientMaker):
         self._startup()
 
         if self.do_forward_and_backward(step):
-            with nvtx.range('prec forward'):
+            with nvtx.range('forward'):
                 self.forward()
-            with nvtx.range('prec backward'):
+            with nvtx.range('backward'):
                 self.backward()
         if self.do_update_curvature(step):
             with nvtx.range('update_curvature'):
