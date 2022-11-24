@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 1
+            self.world_size = 2
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
         print(self.splits, "\n", self.partitioned_modules)
@@ -165,8 +165,9 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         #print(grads_list, "\n")
         print(tensor_list, "\n")
 
-        handle = dist.reduce_scatter(tensor_list[self.world_rank], tensor_list, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
-
+        for i in range(self.world_size):
+            handle = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=async_op)
+        
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
         for i, preconditioner in enumerate(self.preconditioners):
