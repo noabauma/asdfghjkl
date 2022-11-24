@@ -75,7 +75,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 layer += 1
 
         if self.world_rank == 0:
-            print(self.splits, "\n", self.partitioned_modules)
+            print(self.splits, "\n", self.partitioned_modules, flush=True)
         #print("rank: ", self.world_rank, " has:\n", [prec._transformed_shape for prec in self.preconditioners])
 
 
