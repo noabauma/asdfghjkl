@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 3
+            self.world_size = 2
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
         print(self.splits, "\n", self.partitioned_modules)
@@ -146,19 +146,21 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         grads_list = []
         tensor_list = []
-        for i in range(self.world_size):
+        for i in range(len(self.splits)):
             if i == 0:
                 grads_split = grads[:self.splits[i]]
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
-            elif i == len(self.splits) - 1:
-                grads_split = grads[self.splits[i]:]
-                grads_list.append(grads_split)
-                tensor_list.append(parameters_to_vector(grads_split))
-            else:
+            elif len(self.splits) > 1:
                 grads_split = grads[self.splits[i-1]:self.splits[i]]
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
+            
+            if i == len(self.splits) - 1:
+                grads_split = grads[self.splits[i]:]
+                grads_list.append(grads_split)
+                tensor_list.append(parameters_to_vector(grads_split))
+            
 
         print(grads_list, "\n")
         #print(tensor_list, "\n")
