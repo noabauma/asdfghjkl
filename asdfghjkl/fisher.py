@@ -258,6 +258,7 @@ class FisherMaker(GradientMaker):
                         tensor_list.append(p.grad)
         handles = []
         for tensor in tensor_list:
+            tensor = tensor.contiguous()
             if all_reduce:
                 handles.append(dist.all_reduce(tensor, group=group, async_op=async_op))
             else:
