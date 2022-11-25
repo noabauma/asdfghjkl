@@ -67,7 +67,7 @@ def main():
 
         shift = 0#event_start_end[0][1]  # not perfect, idk why. TODO check why.
 
-    
+    shift = 0
 
     warmup_start = 0
 

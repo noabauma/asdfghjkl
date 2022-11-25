@@ -69,7 +69,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         self.preconditioners = []
         layer = 0
         for p in model.parameters():
-            if p.ndim > 1: # p.requires_grad and p.grad is not None how about checking those as well?
+            if p.ndim > 1 and p.requires_grad:
                 if self.world_rank == self.partitioned_modules[layer]:
                     self.preconditioners.append(Preconditioner(p, config))
                 layer += 1
@@ -164,7 +164,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 self.all_gather_grads()
 
     def reduce_scatter_grads(self):
-        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1 and p.requires_grad] #this could be all done ones at __init__
 
         grads_list = []
         tensor_list = []
@@ -187,20 +187,20 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         #print("before scatter: ", grads, "\n")
 
-        handle_list = []
+        handler_list = []
         for i in range(self.world_size):
-            handle = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=True)
-            handle_list.append(handle)
+            handler = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=True)
+            handler_list.append(handler)
 
-        for handle in handle_list:
-            handle.wait()
+        for handler in handler_list:
+            handler.wait()
         
         vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
         #print("after scatter: ", grads, "\n")
 
     def all_gather_grads(self):
-        grads = [p.grad for p in self.model.parameters() if p.ndim > 1] #this could be all done ones at __init__
+        grads = [p.grad for p in self.model.parameters() if p.ndim > 1 and p.requires_grad] #this could be all done ones at __init__
 
         grads_list = []
         tensor_list = []
@@ -221,15 +221,13 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         group = self.config.sync_group
 
-        handle_list = []
+        handler_list = []
         for i in range(self.world_size):
-            handle = dist.broadcast(tensor_list[i], i, group=group, async_op=True)
-            handle_list.append(handle)
+            handler = dist.broadcast(tensor_list[i], i, group=group, async_op=True)
+            handler_list.append(handler)
 
-        for handle in handle_list:
-            handle.wait()
-
-        grads = [p.grad for p in self.model.parameters() if p.ndim > 1]
+        for handler in handler_list:
+            handler.wait()
 
         #print("before gather: ", grads)
 
