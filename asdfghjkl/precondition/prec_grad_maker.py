@@ -89,6 +89,7 @@ class PreconditionedGradientMaker(GradientMaker):
 
         with nvtx.range('precondition'):
             self.precondition()
+            print('precondition', flush=True)
 
         self._teardown()
 
