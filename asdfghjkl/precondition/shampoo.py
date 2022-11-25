@@ -142,7 +142,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
 
     def update_curvature(self):
-        # TODO: reduce scatter grads here or after backward pass?
+        # TODO: Not needed if ASDL combined with PyTorch's DDP
         if self.world_size > 1:
             with nvtx.range('reduce_scatter_grads'):
                 self.reduce_scatter_grads()
@@ -158,10 +158,11 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         for preconditioner in self.preconditioners:
             preconditioner.precondition()
 
-        # TODO: all_scatter grads here?
         if self.world_size > 1:
             with nvtx.range('all_gather_grads'):
                 self.all_gather_grads()
+
+        print("all_gather done", flush=True)
 
     def reduce_scatter_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1 and p.requires_grad] #this could be all done ones at __init__
