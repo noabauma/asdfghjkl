@@ -60,16 +60,28 @@ def main():
         if args.event_keywords is not None:
             warnings.warn('As event_texts is specified, event_keywords will be ignored.')
 
+    warmup_start = 0
+    
+    shift = 0
+
+    if args.ignore_warmup:            #every nvtx event before warmup will be ignored
+        #event_start_end = get_event_start_end('Warmup')
+        #warmup_start = event_start_end[0][1]
+
+        event_start_end = get_event_start_end('Iter')
+        warmup_start = event_start_end[0][0]
+
     if args.known_blocking_comm is not None:
         assert args.known_blocking_comm in event_texts, "{args.known_blocking_comm} not in {event_texts}"
 
         event_start_end = get_event_start_end(args.known_blocking_comm)
 
-        shift = 0#event_start_end[0][1]  # not perfect, idk why. TODO check why.
 
-    shift = 0
+        for i in range(len(event_start_end)):
+            if warmup_start < event_start_end[i][0]:
+                shift = event_start_end[i][0]  # not perfect, idk why. TODO check why.
+                break
 
-    warmup_start = 0
 
     times = dict()
     index = []
@@ -77,11 +89,7 @@ def main():
     for txt in event_texts:
         event_start_end = get_event_start_end(txt)
 
-        if args.ignore_warmup and (txt == 'Warmup' or txt == 'warmup'):          #every nvtx event before warmup will be ignored
-            warmup_start = event_start_end[0][1]
-            continue
-
-        if txt == 'init' or txt == 'Iter':
+        if txt == 'init' or txt == 'Iter' or txt == 'Warmup' or txt == 'warmup':
             continue
 
         Nones = any([s == None or e == None for s, e in event_start_end])
@@ -118,7 +126,7 @@ if __name__ == '__main__':
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
-    parser.add_argument('--known_blocking_comm', type=str, default=None)
+    parser.add_argument('--known_blocking_comm', type=str, default='Iter')
     args = parser.parse_args()
 
     fig, ax = plt.subplots()

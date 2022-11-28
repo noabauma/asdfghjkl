@@ -78,6 +78,12 @@ def main():
             warnings.warn('As event_texts is specified, event_keywords will be ignored.')
 
     warmup_start = 0
+    if args.ignore_warmup:            #every nvtx event before warmup will be ignored
+        #event_start_end = get_event_start_end('Warmup')
+        #warmup_start = event_start_end[0][1]
+
+        event_start_end = get_event_start_end('Iter')
+        warmup_start = event_start_end[0][0]
 
     times = {'ncalls': []}
     for key in ['runtime', 'kernel', 'memset', 'memcpy', 'sync']:
@@ -86,10 +92,10 @@ def main():
     index = []
     print(f'Collecting time for {event_texts}')
     for txt in event_texts:
-        event_start_end = get_event_start_end(txt)
+        if txt == 'init' or txt == 'Iter' or txt == 'Warmup' or txt == 'warmup':
+            continue
 
-        if args.ignore_warmup and (txt == 'Warmup' or txt == 'warmup'):          #every nvtx event before warmup will be ignored
-            warmup_start = event_start_end[0][1]
+        event_start_end = get_event_start_end(txt)
 
         Nones = any([s == None or e == None for s, e in event_start_end])
         if len(event_start_end) == 0 or Nones:
@@ -114,14 +120,20 @@ def main():
                        'memcpy': get_memcpy_time_in_event,
                        'sync': get_sync_time_in_event}.items():
             _times = [f(s, e) for s, e in event_start_end]
-            times[key].append(np.mean(_times))
+            if args.use_max:
+                times[key].append(np.max(_times))
+            else:
+                times[key].append(np.mean(_times))
+
             times[f'{key}_stdev'].append(np.std(_times))
+            
+            
 
     df = pd.DataFrame(times, index=index)
     print(df)
     pickle_path = args.pickle_path
     print(f'Writing results to "{pickle_path}"')
-    df.to_pickle(pickle_path)
+    #df.to_pickle(pickle_path)
 
     if args.wandb_run_path is not None:
         data = df.to_dict('index')
@@ -141,7 +153,10 @@ if __name__ == '__main__':
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
+    parser.add_argument('--use_max', action='store_true', default=False)
 
     args = parser.parse_args()
+
+    print(args.use_max)
     con = sqlite3.connect(args.sqlite_path)
     main()
