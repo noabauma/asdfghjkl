@@ -29,21 +29,23 @@ def main():
     ax = fig.add_subplot(gs[0, 0])
     ax.set_title(args.title)
     plot_time_bar(ax)
+    plot_time_bar(ax)
 
     plt.tight_layout()
-    #plt.savefig(args.fig_path, bbox_inches='tight')
+    plt.savefig(args.fig_path, bbox_inches='tight')
     plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('pickle_path', type=str, default='data/nvtx_events.pickle')
+    parser.add_argument('pickle_path', type=str, nargs='+')
     parser.add_argument('--fig-path', type=str, default='data/prof.png')
     parser.add_argument('--title', type=str, default='')
     parser.add_argument('--events', type=str, default='all')
+    parser.add_argument('--sub_events', type=str)
     args = parser.parse_args()
 
 
-    df = pd.read_pickle(args.pickle_path)
+    df = pd.read_pickle(args.pickle_path[0])
     events = df.index if args.events == 'all' else args.events.split(',')
     times = df.to_dict()
     events = [event for event in events if event in times['runtime']]

@@ -61,9 +61,6 @@ def main():
             warnings.warn('As event_texts is specified, event_keywords will be ignored.')
 
     warmup_start = 0
-    
-    shift = 0
-
     if args.ignore_warmup:            #every nvtx event before warmup will be ignored
         #event_start_end = get_event_start_end('Warmup')
         #warmup_start = event_start_end[0][1]
@@ -71,6 +68,7 @@ def main():
         event_start_end = get_event_start_end('Iter')
         warmup_start = event_start_end[0][0]
 
+    shift = 0
     if args.known_blocking_comm is not None:
         assert args.known_blocking_comm in event_texts, "{args.known_blocking_comm} not in {event_texts}"
 
@@ -127,6 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
     parser.add_argument('--known_blocking_comm', type=str, default='Iter')
+    parser.add_argument('--title', type=str, default='')
     args = parser.parse_args()
 
     fig, ax = plt.subplots()
@@ -152,4 +151,6 @@ if __name__ == '__main__':
 
     plt.legend(loc='best')
 
+    plt.title(args.title)
+    #plt.savefig('data/profile.png')
     plt.show()

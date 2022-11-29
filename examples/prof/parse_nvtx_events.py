@@ -13,6 +13,7 @@ def get_all_event_texts():
     SELECT DISTINCT text
     FROM NVTX_EVENTS;
     """
+    con = sqlite3.connect(args.sqlite_path[0])
     df = pd.read_sql(sql, con)
     return [row['text'] for _, row in df.iterrows()]
 
@@ -23,8 +24,13 @@ def get_event_start_end(event_text):
     FROM NVTX_EVENTS
     WHERE text = '{event_text}';
     """
-    df = pd.read_sql(sql, con)
-    return [(row['start'], row['end']) for _, row in df.iterrows()]
+    lst = []
+    for sqlite_path in args.sqlite_path:
+        con = sqlite3.connect(sqlite_path)
+        df = pd.read_sql(sql, con)
+        for _, row in df.iterrows():
+            lst.append((row['start'], row['end']))
+    return lst
 
 
 def get_total_time_in_event(target_table_name, event_start, event_end):
@@ -36,6 +42,7 @@ def get_total_time_in_event(target_table_name, event_start, event_end):
     WHERE runtime.start BETWEEN {event_start} AND {event_end};
     """
     try:
+        con = sqlite3.connect(args.sqlite_path[0])
         df = pd.read_sql(sql, con)
         time = df['total_time'].iloc[0]
         if time is None:
@@ -89,6 +96,7 @@ def main():
     for key in ['runtime', 'kernel', 'memset', 'memcpy', 'sync']:
         times[key] = []
         times[f'{key}_stdev'] = []
+        times[f'{key}_max'] = []
     index = []
     print(f'Collecting time for {event_texts}')
     for txt in event_texts:
@@ -120,20 +128,17 @@ def main():
                        'memcpy': get_memcpy_time_in_event,
                        'sync': get_sync_time_in_event}.items():
             _times = [f(s, e) for s, e in event_start_end]
-            if args.use_max:
-                times[key].append(np.max(_times))
-            else:
-                times[key].append(np.mean(_times))
 
+            times[key].append(np.mean(_times))
             times[f'{key}_stdev'].append(np.std(_times))
-            
+            times[f'{key}_max'].append(np.max(_times))
             
 
     df = pd.DataFrame(times, index=index)
     print(df)
     pickle_path = args.pickle_path
     print(f'Writing results to "{pickle_path}"')
-    #df.to_pickle(pickle_path)
+    df.to_pickle(pickle_path)
 
     if args.wandb_run_path is not None:
         data = df.to_dict('index')
@@ -146,7 +151,7 @@ def main():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('sqlite_path', type=str)
+    parser.add_argument('sqlite_path', type=str, nargs='+')
     parser.add_argument('--pickle_path', type=str, default='data/nvtx_events.pickle')
     parser.add_argument('--ignore_first_event', action='store_true', default=False)
     parser.add_argument('--ignore_warmup', action='store_true', default=True)
@@ -157,6 +162,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print(args.use_max)
-    con = sqlite3.connect(args.sqlite_path)
     main()
