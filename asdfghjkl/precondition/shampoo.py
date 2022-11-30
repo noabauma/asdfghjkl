@@ -63,7 +63,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
-        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
+        assert self.world_size >= len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
 
 
 
@@ -184,20 +184,23 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 grads_split = grads[self.splits[i]:]
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
+
+        assert len(self.splits)+1 == len(tensor_list) <= self.world_size, str(self.splits) + ', ' + len(tensor_list) + ', '  + str(self.world_size)
             
         group = self.config.sync_group
 
         #print("before scatter: ", grads, "\n")
 
         handler_list = []
-        for i in range(self.world_size):
+        for i in range(len(tensor_list)):
             handler = dist.reduce(tensor_list[i], i, op=dist.ReduceOp.AVG, group=group, async_op=True)
             handler_list.append(handler)
 
         for handler in handler_list:
             handler.wait()
         
-        vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
+        if self.world_rank < len(tensor_list):  # this check needed if more GPUs than layers
+            vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
         #print("after scatter: ", grads, "\n")
 
@@ -221,10 +224,12 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 grads_list.append(grads_split)
                 tensor_list.append(parameters_to_vector(grads_split))
 
+        assert len(self.splits)+1 == len(tensor_list) <= self.world_size, str(self.splits) + ', ' + len(tensor_list) + ', '  + str(self.world_size)
+
         group = self.config.sync_group
 
         handler_list = []
-        for i in range(self.world_size):
+        for i in range(len(tensor_list)):
             handler = dist.broadcast(tensor_list[i], i, group=group, async_op=True)
             handler_list.append(handler)
 
@@ -233,7 +238,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         #print("before gather: ", grads)
 
-        for i in range(self.world_size):
+        for i in range(len(tensor_list)): # all GPUs unpack the new gotten grads
             vector_to_parameters(tensor_list[i], grads_list[i])
 
         #print("after gather: ", grads)
