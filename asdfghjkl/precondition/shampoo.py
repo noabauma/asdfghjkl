@@ -63,7 +63,8 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
-        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match!"
+        assert self.world_size == len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
+
 
 
         self.preconditioners = []

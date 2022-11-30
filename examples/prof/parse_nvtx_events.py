@@ -18,6 +18,16 @@ def get_all_event_texts():
     return [row['text'] for _, row in df.iterrows()]
 
 
+def get_event_start_end_single(event_text, con):
+    sql = f"""
+    SELECT start, end
+    FROM NVTX_EVENTS
+    WHERE text = '{event_text}';
+    """
+    df = pd.read_sql(sql, con)
+    return [(row['start'], row['end']) for _, row in df.iterrows()]
+
+
 def get_event_start_end(event_text):
     sql = f"""
     SELECT start, end
@@ -28,8 +38,18 @@ def get_event_start_end(event_text):
     for sqlite_path in args.sqlite_path:
         con = sqlite3.connect(sqlite_path)
         df = pd.read_sql(sql, con)
+
+        warmup_start = 0
+        if args.ignore_warmup:            #every nvtx event before warmup will be ignored
+            #event_start_end = get_event_start_end('Warmup')
+            #warmup_start = event_start_end[0][1]
+
+            event_start_end = get_event_start_end_single('Iter', con)
+            warmup_start = event_start_end[0][0]
+
         for _, row in df.iterrows():
-            lst.append((row['start'], row['end']))
+            if row['start'] > warmup_start:
+                lst.append((row['start'], row['end']))
     return lst
 
 
@@ -84,13 +104,7 @@ def main():
         if args.event_keywords is not None:
             warnings.warn('As event_texts is specified, event_keywords will be ignored.')
 
-    warmup_start = 0
-    if args.ignore_warmup:            #every nvtx event before warmup will be ignored
-        #event_start_end = get_event_start_end('Warmup')
-        #warmup_start = event_start_end[0][1]
-
-        event_start_end = get_event_start_end('Iter')
-        warmup_start = event_start_end[0][0]
+    
 
     times = {'ncalls': []}
     for key in ['runtime', 'kernel', 'memset', 'memcpy', 'sync']:
@@ -109,15 +123,6 @@ def main():
         if len(event_start_end) == 0 or Nones:
             continue
         index.append(txt)
-        if args.ignore_first_event:
-            # ignore first NVTX event
-            event_start_end = event_start_end[1:]
-
-        if warmup_start > 0:
-            for enum, (s, e) in enumerate(event_start_end):
-                if warmup_start < s:
-                    break
-            event_start_end = event_start_end[enum:]
 
         #print("@@@", txt, ": ", event_start_end, "@@@")
 
@@ -153,7 +158,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('sqlite_path', type=str, nargs='+')
     parser.add_argument('--pickle_path', type=str, default='data/nvtx_events.pickle')
-    parser.add_argument('--ignore_first_event', action='store_true', default=False)
     parser.add_argument('--ignore_warmup', action='store_true', default=True)
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
