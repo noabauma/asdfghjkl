@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 1
+            self.world_size = 20
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
         assert self.world_size >= len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
@@ -82,35 +82,100 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
     def get_distr_prec_partition(self):
         """
-        Distributes the workload linearly spaced by the amount of available GPUs
+        Distributes the workload by computational cost of each layer for total number of GPUs
 
-        Will probably be improved in the future for more evenly balanced workload depending on the layer sizes. (or multiple GPUs for one layer)
+        TODO: multiple GPUs for on layer
 
         e.g.
-
-        3 GPUs for ResNet18:
-        [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2]
-
         1 GPU for ResNet18:
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        3 GPUs for ResNet18:
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 2, 2]
+
+        8 GPUs for ResNet18:
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 3, 4, 5, 6, 7]
 
         21 or more GPUs for ResNet18:
         [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
 
-        2 GPUs for 3 layers MLP:
+        2 GPUs for 3 layers MLP (if first layer is bigger than 2nd and 3rd):
         [0,1,1]
         """
 
-        num_param = 0
-        layers = []
-        num_shapes = 0
+        total_comp_cost = 0
+        comp_cost_layers = []
         for p in self.model.parameters():
-            if p.ndim > 1:
-                num_param += p.numel()
+            if p.ndim > 1 and p.requires_grad:
                 _transformed_shape = _merge_small_dims(p.shape, self.config.block_size)
-                num_shapes += len(_transformed_shape)
-                layers.append(_transformed_shape)
+                _partitioner = BlockPartitioner(_transformed_shape, self.config.block_size)
+                shapes = _partitioner.kronecker_factor_shapes()
 
+                comp_cost = self.computational_cost(shapes)
+                total_comp_cost += comp_cost
+                comp_cost_layers.append(comp_cost)
+
+        #print("total_comp_cost: ", total_comp_cost)
+        #print("comp_cost_layers: ", comp_cost_layers)
+
+        num_layers = len(comp_cost_layers)
+
+        partitions = [0]*num_layers
+        if self.world_size == 1:
+            return [], partitions
+        elif num_layers > self.world_size:
+            split_list = np.array([0])
+
+            for rank in range(self.world_size - 1):
+                if rank == 0:
+                    split_list = np.append(split_list, self.next_split(comp_cost_layers))
+                else:
+                    sub_sums = []
+                    for i in range(1, len(split_list)):
+                        
+                        local_comp_cost = np.sum(comp_cost_layers[split_list[i-1]:split_list[i]])
+                        sub_sums.append(local_comp_cost)
+                        
+                        if i == len(split_list) - 1:
+                            local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
+                            sub_sums.append(local_comp_cost)
+
+                    while(True):
+                        i = np.argmax(sub_sums)
+                        if i == len(sub_sums) - 1:
+                            sub_comp_cost_layers = comp_cost_layers[split_list[i]:]
+                            shift = split_list[i]
+                        else:
+                            sub_comp_cost_layers = comp_cost_layers[split_list[i]:split_list[i+1]]
+                            shift = split_list[i]
+
+                        if len(sub_comp_cost_layers) > 1:
+                            break
+                        else:
+                            sub_sums[i] = -1
+
+
+                    split_list = np.append(split_list, self.next_split(sub_comp_cost_layers) + shift)
+                    split_list = np.sort(split_list)
+
+            next_split = split_list[1]
+            rank = 0
+            for i in range(len(partitions)):
+                if i == next_split:
+                    rank += 1
+                    if rank != self.world_size - 1:
+                        next_split = split_list[rank+1]
+                
+                partitions[i] = rank
+            return split_list[1:], partitions
+        else: #atm, we do not support multiple gpus for one layer
+            rank = 0
+            for i in range(num_layers):
+                partitions[i] = i
+                
+            return partitions[1:], partitions
+
+        """
         num_layers = len(layers)
 
         partitions = [0]*num_layers
@@ -135,7 +200,42 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 partitions[i] = i
                 
             return partitions[1:], partitions
+        """
 
+    def computational_cost(self, shapes):
+        """
+        input: shape: [[x, x],[y, y],...] (Blockpartitioner.kronecker_factor_shape)
+
+        output: returns the compuational cost of this Blockpartitioned layers
+        """
+        tmp_cost = 0
+        for shape in shapes:
+            assert len(shape) == 2
+            assert shape[0] == shape[1]
+
+            tmp_cost += shape[0]**3 # ATM simple O(n^3) assumption
+
+        return tmp_cost
+
+    def next_split(self, subset_partitions):
+        """
+        deciding where the next split is happening
+        
+        input: subset_partitions: [] is a subset of comp_cost_layers
+
+        output: index where to split (int)
+        """
+        assert len(subset_partitions) > 1
+
+        x = np.array(subset_partitions)
+        y = np.sum(subset_partitions)/2
+
+        split_loc = len(x[np.cumsum(x) < y])
+
+        if split_loc == 0:
+            split_loc += 1
+        
+        return split_loc
         
 
     def do_forward_and_backward(self, step=None):
@@ -162,8 +262,6 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         if self.world_size > 1:
             with nvtx.range('all_gather_grads'):
                 self.all_gather_grads()
-
-        print("all_gather done", flush=True)
 
     def reduce_scatter_grads(self):
         grads = [p.grad for p in self.model.parameters() if p.ndim > 1 and p.requires_grad] #this could be all done ones at __init__
@@ -199,7 +297,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         for handler in handler_list:
             handler.wait()
         
-        if self.world_rank < len(tensor_list):  # this check needed if more GPUs than layers
+        if self.world_rank < len(tensor_list):  # this check needed if there are more GPUs than layers
             vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
         #print("after scatter: ", grads, "\n")

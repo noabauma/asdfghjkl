@@ -74,9 +74,8 @@ def main():
 
         event_start_end = get_event_start_end(args.known_blocking_comm)
 
-
         for i in range(len(event_start_end)):
-            if warmup_start < event_start_end[i][0]:
+            if warmup_start <= event_start_end[i][0]:
                 shift = event_start_end[i][0]  # not perfect, idk why. TODO check why.
                 break
 
