@@ -126,7 +126,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         elif num_layers > self.world_size:
             split_list = np.array([0])
 
-            for rank in range(self.world_size - 1):
+            for rank in range(self.world_size-1):
                 if rank == 0:
                     split_list = np.append(split_list, self.next_split(comp_cost_layers))
                 else:
@@ -157,6 +157,18 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
                     split_list = np.append(split_list, self.next_split(sub_comp_cost_layers) + shift)
                     split_list = np.sort(split_list)
+
+            sub_sums = []
+            for i in range(1, len(split_list)):
+                
+                local_comp_cost = np.sum(comp_cost_layers[split_list[i-1]:split_list[i]])
+                sub_sums.append(local_comp_cost)
+                
+                if i == len(split_list) - 1:
+                    local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
+                    sub_sums.append(local_comp_cost)
+
+            #print(sub_sums, "\n", split_list)
 
             next_split = split_list[1]
             rank = 0
@@ -213,7 +225,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost += shape[0]**2 # ATM simple O(n^3) assumption
+            tmp_cost += shape[0]**1 # ATM simple O(n^3) assumption
 
         return tmp_cost
 
