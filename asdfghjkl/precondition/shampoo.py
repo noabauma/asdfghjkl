@@ -231,7 +231,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost += shape[0]**0.75 # ATM simple O(n^3) assumption
+            tmp_cost += shape[0]**0.5 # ATM simple O(n^3) assumption
 
         return tmp_cost
 
@@ -250,7 +250,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         split_loc = len(x[np.cumsum(x) < y])
 
-        #if split_loc == 0:  #shift all or 
+        #if split_loc == 0:  # for resnet and densenet, this is really good
         split_loc += 1
         
         return split_loc
