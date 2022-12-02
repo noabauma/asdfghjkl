@@ -117,9 +117,10 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                 total_comp_cost += comp_cost
                 comp_cost_layers.append(comp_cost)
 
-        print("shapes: ", shapes_list, "\n")
-        #print("total_comp_cost: ", total_comp_cost)
-        #print("comp_cost_layers: ", comp_cost_layers)
+        if self.world_rank == 0:
+            print("shapes: ", shapes_list, "\n")
+            #print("total_comp_cost: ", total_comp_cost)
+            #print("comp_cost_layers: ", comp_cost_layers)
 
         num_layers = len(comp_cost_layers)
 
@@ -171,7 +172,8 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                     local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
                     sub_sums.append(local_comp_cost)
 
-            print(sub_sums, "\n")
+            if self.world_rank == 0:
+                print(sub_sums, "\n")
 
             next_split = split_list[1]
             rank = 0
@@ -223,12 +225,12 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         output: returns the compuational cost of this Blockpartitioned layers
         """
-        tmp_cost = 1
+        tmp_cost = 0
         for shape in shapes:
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost *= shape[0]**1 # ATM simple O(n^3) assumption
+            tmp_cost *= shape[0]**0 # ATM simple O(n^3) assumption
 
         return tmp_cost
 
