@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 6
+            self.world_size = 8
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
         assert self.world_size >= len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
@@ -230,7 +230,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost += shape[0]**0 # ATM simple O(n^3) assumption
+            tmp_cost += shape[0]**0.5 # ATM simple O(n^3) assumption
 
         return tmp_cost
 
