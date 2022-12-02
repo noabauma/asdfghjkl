@@ -60,7 +60,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
         else:
             self.world_rank = 0
-            self.world_size = 4
+            self.world_size = 6
             self.splits, self.partitioned_modules = self.get_distr_prec_partition()
 
         assert self.world_size >= len(self.splits) + 1, "world_size and number of splits do not match! splits = " + str(self.splits) 
@@ -105,16 +105,19 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         total_comp_cost = 0
         comp_cost_layers = []
+        shapes_list = []
         for p in self.model.parameters():
             if p.ndim > 1 and p.requires_grad:
                 _transformed_shape = _merge_small_dims(p.shape, self.config.block_size)
                 _partitioner = BlockPartitioner(_transformed_shape, self.config.block_size)
                 shapes = _partitioner.kronecker_factor_shapes()
 
+                shapes_list.append(_transformed_shape)
                 comp_cost = self.computational_cost(shapes)
                 total_comp_cost += comp_cost
                 comp_cost_layers.append(comp_cost)
 
+        print("shapes: ", shapes_list, "\n")
         #print("total_comp_cost: ", total_comp_cost)
         #print("comp_cost_layers: ", comp_cost_layers)
 
@@ -168,7 +171,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
                     local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
                     sub_sums.append(local_comp_cost)
 
-            #print(sub_sums, "\n", split_list)
+            print(sub_sums, "\n")
 
             next_split = split_list[1]
             rank = 0
@@ -220,12 +223,12 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
 
         output: returns the compuational cost of this Blockpartitioned layers
         """
-        tmp_cost = 0
+        tmp_cost = 1
         for shape in shapes:
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost += shape[0]**0.1 # ATM simple O(n^3) assumption
+            tmp_cost *= shape[0]**1 # ATM simple O(n^3) assumption
 
         return tmp_cost
 
