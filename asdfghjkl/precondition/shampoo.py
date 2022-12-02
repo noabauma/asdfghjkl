@@ -120,7 +120,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         if self.world_rank == 0:
             print("shapes: ", shapes_list, "\n")
             #print("total_comp_cost: ", total_comp_cost)
-            #print("comp_cost_layers: ", comp_cost_layers)
+            print("comp_cost_layers: ", comp_cost_layers)
 
         num_layers = len(comp_cost_layers)
 
@@ -193,13 +193,14 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             return partitions[1:], partitions
 
         """
+        # Layerwise partitioning (old version)
         num_layers = len(layers)
 
         partitions = [0]*num_layers
         if self.world_size == 0:
             return [], partitions
         elif num_layers > self.world_size:
-            split_size = num_layers//self.world_size
+            split_size = num_layers//self.world_size + 1
             split_counter = split_size
             split_list = [split_counter]
             rank = 0
@@ -247,10 +248,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         x = np.array(subset_partitions)
         y = np.sum(subset_partitions)/2
 
-        split_loc = len(x[np.cumsum(x) < y])
-
-        if split_loc == 0:
-            split_loc += 1
+        split_loc = len(x[np.cumsum(x) < y]) + 1
         
         return split_loc
         
