@@ -98,6 +98,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.partitions = self.get_distr_prec_partition()
 
+        print(self.partitions)
+
         fisher_config = FisherConfig(
             fisher_type=config.fisher_type,
             fisher_shapes=config.fisher_shape,
@@ -129,9 +131,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             for module in self.modules_for(shape):
                 for keys in keys_list:
                     tensor = self.fisher_maker.get_fisher_tensor(module, *keys)
-                if tensor is None:
-                    continue
-                tensor_list.append(tensor)
+                    if tensor is None:
+                        continue
+                    tensor_list.append(tensor)
         return tensor_list
 
     def get_distr_prec_partition(self): 
@@ -187,7 +189,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             return partitions
             
         else:
-            split_size = tot_num_modules//self.world_size
+            split_size = tot_num_modules // self.world_size
             rank = 0
             split = split_size
             tot_module = 0
@@ -286,7 +288,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def do_accumulate(self):
         return self.config.ema_decay != _invalid_ema_decay
 
-    #@nvtx.range('update_curvature')
+
     def update_curvature(self):
         config = self.config
         fisher_maker = self.fisher_maker
@@ -307,9 +309,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                            )
 
         if self.do_accumulate:
-            self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
+            #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
+            if self.world_size > 1:
+                self.reduce_scatter_curvature()
 
-    #@nvtx.range('update_inv')
+
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
         if not self.do_accumulate:
             return
@@ -332,32 +336,32 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         modified_partition_id = (partition_id + rank_in_group) % len(self.config.module_partitions)
                         module = self.config.module_partitions[modified_partition_id][module_id_in_partition]
 
-                #if self.world_rank == self.partitions[enum_shape][enum_modules]:
-                matrix = self._get_module_symmatrix(module, shape)
-                if matrix is None:
-                    continue
+                if self.world_rank == self.partitions[enum_shape][enum_modules]:
+                    matrix = self._get_module_symmatrix(module, shape)
+                    if matrix is None:
+                        continue
 
-                event = f'inv_{shape}'
-                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                    for A_or_B in kron:
-                        event += f'_{A_or_B}'
+                    event = f'inv_{shape}'
+                    if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                        for A_or_B in kron:
+                            event += f'_{A_or_B}'
 
-                with nvtx.range(event + self.nvtx_tag(name)):
-                    if self.is_module_for_inv_and_precondition(module):
-                        if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                            matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
-                        else:
-                            matrix.update_inv(damping)
-
-                    if zero_curvature:
-                        with torch.no_grad():
+                    with nvtx.range(event + self.nvtx_tag(name)):
+                        if self.is_module_for_inv_and_precondition(module):
                             if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
-                                if 'A' in kron:
-                                    matrix.A.mul_(0)
-                                if 'B' in kron:
-                                    matrix.B.mul_(0)
+                                matrix.update_inv(damping, calc_A_inv='A' in kron, calc_B_inv='B' in kron)
                             else:
-                                matrix.mul_(0)
+                                matrix.update_inv(damping)
+
+                        if zero_curvature:
+                            with torch.no_grad():
+                                if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                                    if 'A' in kron:
+                                        matrix.A.mul_(0)
+                                    if 'B' in kron:
+                                        matrix.B.mul_(0)
+                                else:
+                                    matrix.mul_(0)
 
                 if module_name is not None:
                     break
@@ -369,7 +373,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 with torch.no_grad():
                     fisher.mul_(0)
 
-    #@nvtx.range('precondition')
+
     def precondition(self, vectors: ParamVector = None, grad_scale=None, use_inv=True):
         if grad_scale is None:
             grad_scale = self.config.grad_scale
@@ -469,6 +473,39 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.all_reduce_no_curvature_grad(async_op=async_op)
 
     @nvtx.range('reduce_scatter_curvature')
+    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True):
+        handles = []
+        for shape in _module_level_shapes:
+            keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
+            for keys in keys_list:
+                handles += self.fisher_maker.reduce_scatter_fisher(module_partitions,
+                                                                   *keys,
+                                                                   with_grad=with_grad,
+                                                                   group=self.config.sync_group,
+                                                                   async_op=True)
+        if async_op:
+            self.curvature_sync_handles += handles
+        else:
+            for handle in handles:
+                handle.wait()
+    """
+    # prev version of Kazuki
+    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=False):
+        module_partitions = self.config.module_partitions
+        assert module_partitions is not None, 'module_partitions is not specified.'
+        handles = []
+        for shape in _module_level_shapes:
+            keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
+            for keys in keys_list:
+                handles += self.fisher_maker.reduce_scatter_fisher(module_partitions,
+                                                                   *keys,
+                                                                   with_grad=with_grad,
+                                                                   group=self.config.sync_group,
+                                                                   async_op=True)
+        return handles
+    """
+
+    @nvtx.range('reduce_scatter_curvature2')
     def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=False):
         module_partitions = self.config.module_partitions
         assert module_partitions is not None, 'module_partitions is not specified.'
