@@ -261,6 +261,7 @@ class Operation:
                 #Here reduce all A & B?
                 if dist.is_initialized():
                     with nvtx.range('all_reduce_A_B'):
+                        print('all_reduce_A_B')
                         A_dim = A.shape[0]
                         B_dim = B.shape[0]
                         packed = torch.cat((A.flatten(), B.flatten())).cuda()
