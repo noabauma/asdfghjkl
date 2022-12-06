@@ -313,7 +313,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
             if self.world_size > 1:
                 for f in self.get_fisher_from_model():
-                    f += self.world_rank
+                    f += 1.1*self.world_rank
                 print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
                 dist.barrier()
