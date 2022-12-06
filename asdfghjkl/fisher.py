@@ -203,12 +203,24 @@ class FisherMaker(GradientMaker):
         return data
 
     def reduce_scatter_fisher(self,
-                              module_partitions: List[List[torch.nn.Module]],
+                              partitions,
                               *keys,
-                              with_grad=False,
+                              with_grad=True,
                               group: dist.ProcessGroup = None,
                               async_op=False):
+
+        world_size = dist.get_world_size()
+        world_rank = dist.get_rank()
+
+        n_fisher_of_shape = [1, 2, 2, None, 1, 2]
         
+        pointer = 0
+        for enum_shape, partition_by_shape in enumerate(partitions):
+            assert n_fisher_of_shape[enum_shape] is not None, "ATM KFE distr not supported"
+            for enum_module, partition_by_module in enumerate(partition_by_shape):
+                
+                if self.world_rank == self.partitions[enum_shape][enum_module]:
+                    return
         """
         assert dist.is_initialized()
         assert torch.cuda.is_available()

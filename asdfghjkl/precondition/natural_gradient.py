@@ -311,7 +311,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if self.do_accumulate:
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
             if self.world_size > 1:
+                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
                 self.reduce_scatter_curvature()
+                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
@@ -324,7 +326,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             damping = self.config.damping
 
         for enum_shape, shape in enumerate(_module_level_shapes):
-            for enum_modules, name_module in enumerate(self.named_modules_for(shape)):
+            for enum_module, name_module in enumerate(self.named_modules_for(shape)):
                 name, module = name_module
                 if module_name is not None:
                     if name != module_name:
@@ -336,8 +338,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         modified_partition_id = (partition_id + rank_in_group) % len(self.config.module_partitions)
                         module = self.config.module_partitions[modified_partition_id][module_id_in_partition]
 
-                if self.world_rank == self.partitions[enum_shape][enum_modules]:
+                if self.world_rank == self.partitions[enum_shape][enum_module]:
                     matrix = self._get_module_symmatrix(module, shape)
+
                     if matrix is None:
                         continue
 
@@ -372,6 +375,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             if zero_curvature:
                 with torch.no_grad():
                     fisher.mul_(0)
+
 
 
     def precondition(self, vectors: ParamVector = None, grad_scale=None, use_inv=True):
@@ -474,16 +478,49 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
     @nvtx.range('reduce_scatter_curvature')
     def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True, async_op=False):
-        partitions = self.partitions
+        assert kron is None and diag is None
+        group = self.config.sync_group
         handles = []
-        for shape in _module_level_shapes:
-            keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
-            for keys in keys_list:
-                handles += self.fisher_maker.reduce_scatter_fisher(module_partitions,
-                                                                   *keys,
-                                                                   with_grad=with_grad,
-                                                                   group=self.config.sync_group,
-                                                                   async_op=async_op)
+
+        rank = 0
+        tensor_list = []
+        for enum_shape, shape in enumerate(_module_level_shapes):
+            keys_list = self._keys_list_from_shape(shape)
+            for enum_module, name_module in enumerate(self.named_modules_for(shape)):
+
+                # we will send when we reached the end of the partitioned rank
+                if rank == self.partitions[enum_shape][enum_module] + 1:
+                    vector = parameters_to_vector(tensor_list)
+                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
+                    if self.world_rank == rank:
+                        vector_to_parameters(tensor_list, vector)
+                    rank += 1
+                    tensor_list = []
+
+                name, module = name_module
+
+                for keys in keys_list:
+                    tensor = self.fisher_maker.get_fisher_tensor(module, *keys)
+                    
+                    if tensor is None:
+                        continue
+                    assert tensor.is_cuda
+                    tensor_list.append(tensor)
+                if with_grad:
+                    for p in module.parameters():
+                        if p.requires_grad and p.grad is not None:
+                            tensor_list.append(p.grad)
+
+                #print("reduce_scatter tensor_list: ", tensor_list, "\n\n")
+
+        #last send for last rank
+        vector = parameters_to_vector(tensor_list)
+        handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
+        if self.world_rank == rank:
+            vector_to_parameters(tensor_list, vector)
+
+        assert rank < self.world_size
+        
         if async_op:
             self.curvature_sync_handles += handles
         else:
