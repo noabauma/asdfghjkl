@@ -319,7 +319,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     for enum_module, module in enumerate(self.modules_for(shape)):
                         for p in module.parameters():
                             if p.requires_grad:     
-                                p += 1.1*self.world_rank
+                                p.grad += 1.1*self.world_rank
                 #print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
                 dist.barrier()
