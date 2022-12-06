@@ -493,7 +493,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 # we will send when we reached the end of the partitioned rank
                 if rank == self.partitions[enum_shape][enum_module] + 1:
                     vector = parameters_to_vector(tensor_list)
-                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
+                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=True))
                     if self.world_rank == rank:
                         vector_to_parameters(vector, tensor_list)
                     rank += 1
