@@ -98,7 +98,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             self.world_size = 1
             self.partitions = self.get_distr_prec_partition()
 
-        print(self.partitions)
+        if self.world_rank == 0:
+            print(self.partitions)
 
         fisher_config = FisherConfig(
             fisher_type=config.fisher_type,
@@ -311,6 +312,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if self.do_accumulate:
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
             if self.world_size > 1:
+                for f in grad_maker.get_fisher_from_model():
+                    f += self.world_rank
                 print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
                 dist.barrier()
@@ -503,7 +506,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 for keys in keys_list:
                     tensor = self.fisher_maker.get_fisher_tensor(module, *keys)
 
-                    if enum_shape == 4:
+                    if enum_shape == 4: # batchnorm layers are somehow not contiguous
                         tensor = tensor.contiguous()
                     
                     if tensor is None:
