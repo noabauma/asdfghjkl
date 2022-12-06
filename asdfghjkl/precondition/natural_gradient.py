@@ -519,7 +519,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         if p.requires_grad and p.grad is not None:
                             tensor_list.append(p.grad)
 
-                #print("reduce_scatter tensor_list: ", tensor_list, "\n\n")
+                if self.world_rank == 0:
+                    print("reduce_scatter tensor_list: ", tensor_list, "\n\n")
 
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
