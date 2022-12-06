@@ -320,10 +320,10 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         for p in module.parameters():
                             if p.requires_grad:     
                                 p.grad += 1.1*self.world_rank
-                #print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
                 dist.barrier()
-                #print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+                print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
@@ -495,6 +495,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         rank = 0
         tensor_list = []
         for enum_shape, shape in enumerate(_module_level_shapes):
+            if enum_shape == 4: #atm no support for BatchNorm layers due to not being contiguous
+                continue
             keys_list = self._keys_list_from_shape(shape)
             for enum_module, name_module in enumerate(self.named_modules_for(shape)):
 
@@ -512,9 +514,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
                 for keys in keys_list:
                     tensor = self.fisher_maker.get_fisher_tensor(module, *keys)
-
-                    if enum_shape == 4: # batchnorm layers are somehow not contiguous
-                        tensor = tensor.contiguous()
                     
                     if tensor is None:
                         continue
@@ -525,16 +524,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         if p.requires_grad and p.grad is not None:
                             tensor_list.append(p.grad)
 
-        
-        print("before reduce_scatter tensor_list: ", tensor_list, "\n\n", flush=True)
-
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
         handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
         if self.world_rank == rank:
             vector_to_parameters(vector, tensor_list)
-
-        print("after reduce_scatter tensor_list: ", tensor_list, "\n\n", flush=True)
 
         assert rank < self.world_size
         
