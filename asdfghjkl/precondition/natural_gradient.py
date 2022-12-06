@@ -517,7 +517,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
-        print(tensor_list, "\n", vector)
         handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
         if self.world_rank == rank:
             vector_to_parameters(vector, tensor_list)
