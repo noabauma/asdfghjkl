@@ -314,10 +314,16 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             if self.world_size > 1:
                 for f in self.get_fisher_from_model():
                     f += 1.1*self.world_rank
-                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+
+                for enum_shape, shape in enumerate(_module_level_shapes):
+                    for enum_module, module in enumerate(self.modules_for(shape)):
+                        for p in module.parameters():
+                            if p.requires_grad:     
+                                p += 1.1*self.world_rank
+                #print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
                 dist.barrier()
-                print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+                #print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
@@ -520,13 +526,15 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                             tensor_list.append(p.grad)
 
         
-        print("reduce_scatter tensor_list: ", tensor_list, "\n\n")
+        print("before reduce_scatter tensor_list: ", tensor_list, "\n\n", flush=True)
 
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
         handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
         if self.world_rank == rank:
             vector_to_parameters(vector, tensor_list)
+
+        print("after reduce_scatter tensor_list: ", tensor_list, "\n\n", flush=True)
 
         assert rank < self.world_size
         
