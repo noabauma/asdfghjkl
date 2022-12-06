@@ -310,7 +310,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         if self.do_accumulate:
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
-            if self.world_size > 1:
+            if self.world_size > 0:
                 print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
                 self.reduce_scatter_curvature()
                 print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
@@ -495,7 +495,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     vector = parameters_to_vector(tensor_list)
                     handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
                     if self.world_rank == rank:
-                        vector_to_parameters(tensor_list, vector)
+                        vector_to_parameters(vector, tensor_list)
                     rank += 1
                     tensor_list = []
 
@@ -515,11 +515,12 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
                 #print("reduce_scatter tensor_list: ", tensor_list, "\n\n")
 
-        #last send for last rank
+        #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
+        print(tensor_list, "\n", vector)
         handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
         if self.world_rank == rank:
-            vector_to_parameters(tensor_list, vector)
+            vector_to_parameters(vector, tensor_list)
 
         assert rank < self.world_size
         
