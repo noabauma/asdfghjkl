@@ -208,6 +208,8 @@ class FisherMaker(GradientMaker):
                               with_grad=False,
                               group: dist.ProcessGroup = None,
                               async_op=False):
+        
+        """
         assert dist.is_initialized()
         assert torch.cuda.is_available()
         assert dist.get_backend(group) == dist.Backend.NCCL
@@ -236,6 +238,7 @@ class FisherMaker(GradientMaker):
             output = input_list[dist.get_rank(group)]
             handles.append(dist.reduce_scatter(output, input_list, group=group, async_op=async_op))
         return handles
+        """
 
     def reduce_fisher(self,
                       modules,

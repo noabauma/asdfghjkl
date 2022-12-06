@@ -473,7 +473,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.all_reduce_no_curvature_grad(async_op=async_op)
 
     @nvtx.range('reduce_scatter_curvature')
-    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True):
+    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True, async_op=False):
+        partitions = self.partitions
         handles = []
         for shape in _module_level_shapes:
             keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
@@ -482,7 +483,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                                                    *keys,
                                                                    with_grad=with_grad,
                                                                    group=self.config.sync_group,
-                                                                   async_op=True)
+                                                                   async_op=async_op)
         if async_op:
             self.curvature_sync_handles += handles
         else:
@@ -504,21 +505,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                                                    async_op=True)
         return handles
     """
-
-    @nvtx.range('reduce_scatter_curvature2')
-    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=False):
-        module_partitions = self.config.module_partitions
-        assert module_partitions is not None, 'module_partitions is not specified.'
-        handles = []
-        for shape in _module_level_shapes:
-            keys_list = self._keys_list_from_shape(shape, kron=kron, diag=diag)
-            for keys in keys_list:
-                handles += self.fisher_maker.reduce_scatter_fisher(module_partitions,
-                                                                   *keys,
-                                                                   with_grad=with_grad,
-                                                                   group=self.config.sync_group,
-                                                                   async_op=True)
-        return handles
 
     @nvtx.range('reduce_curvature')
     def reduce_curvature(self, module_name, kron=None, diag=None, with_grad=False):
