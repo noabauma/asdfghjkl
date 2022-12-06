@@ -493,12 +493,13 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             for enum_module, name_module in enumerate(self.named_modules_for(shape)):
 
                 # we will send when we reached the end of the partitioned rank
-                if rank == self.partitions[enum_shape][enum_module] + 1:
+                if rank != self.partitions[enum_shape][enum_module]:
                     vector = parameters_to_vector(tensor_list)
                     handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
                     if self.world_rank == rank:
                         vector_to_parameters(vector, tensor_list)
                     rank += 1
+                    assert rank == self.partitions[enum_shape][enum_module]
                     tensor_list = []
 
                 name, module = name_module
