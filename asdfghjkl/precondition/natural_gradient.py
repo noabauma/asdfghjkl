@@ -310,10 +310,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         if self.do_accumulate:
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
-            if self.world_size > 0:
-                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
+            if self.world_size > 1:
+                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
                 self.reduce_scatter_curvature()
-                print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n")
+                dist.barrier()
+                print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
@@ -477,7 +478,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.all_reduce_no_curvature_grad(async_op=async_op)
 
     @nvtx.range('reduce_scatter_curvature')
-    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True, async_op=False):
+    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True, async_op=True):
         assert kron is None and diag is None
         group = self.config.sync_group
         handles = []
@@ -493,7 +494,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 # we will send when we reached the end of the partitioned rank
                 if rank == self.partitions[enum_shape][enum_module] + 1:
                     vector = parameters_to_vector(tensor_list)
-                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=True))
+                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
                     if self.world_rank == rank:
                         vector_to_parameters(vector, tensor_list)
                     rank += 1
@@ -517,15 +518,13 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
-        handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=True))
+        handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
         if self.world_rank == rank:
             vector_to_parameters(vector, tensor_list)
 
         assert rank < self.world_size
         
-        if not async_op:
-            self.curvature_sync_handles += handles
-        else:
+        if async_op:
             for handle in handles:
                 handle.wait()
     """
