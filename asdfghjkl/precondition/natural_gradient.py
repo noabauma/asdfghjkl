@@ -414,7 +414,6 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
         if self.world_size > 1:
             if self.do_accumulate:
-                print('all_gather_or_reduce_grad')
                 self.all_gather_or_reduce_grad()
             else:
                 self.all_reduce_all_grad(async_op=False)
@@ -627,8 +626,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     if len(tensor_list) > 0:
                         vector = parameters_to_vector(tensor_list)
                         dist.broadcast(vector, rank, group=group)
-                        if self.world_rank == rank:
-                            vector_to_parameters(vector, tensor_list)
+                        vector_to_parameters(vector, tensor_list)
                     rank += 1
                     assert rank == self.partitions[enum_shape][enum_module]
                     tensor_list = []
@@ -646,8 +644,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if len(tensor_list) > 0:
             vector = parameters_to_vector(tensor_list)
             dist.broadcast(vector, rank, group=group)
-            if self.world_rank == rank:
-                vector_to_parameters(vector, tensor_list)
+            vector_to_parameters(vector, tensor_list)
 
         assert rank < self.world_size
 
