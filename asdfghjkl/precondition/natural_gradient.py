@@ -198,7 +198,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             for shape in range(len_shapes):
                 module_ = None
                 for module_ in range(num_modules[shape]):
-                    if tot_module + module_ > split and rank != self.world_size - 1:
+                    if tot_module + module_ >= split and rank != self.world_size - 1:
                         rank  += 1
                         split += split_size
 
