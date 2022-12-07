@@ -313,6 +313,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         if self.do_accumulate:
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
             if self.world_size > 1:
+                """
                 for f in self.get_fisher_from_model():
                     f += 1.1*self.world_rank
 
@@ -322,9 +323,10 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                             if p.requires_grad:     
                                 p.grad += 1.1*self.world_rank
                 print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+                """
                 self.reduce_scatter_curvature()
-                dist.barrier()
-                print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+                #dist.barrier()
+                #print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
