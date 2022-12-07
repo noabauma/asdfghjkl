@@ -162,12 +162,13 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             num_param = 0
             enum_module = None
             for enum_module, module in enumerate(self.modules_for(shape)):
+                #if not self.is_module_for_inv_and_precondition(module):
                 for p in module.parameters():
                     if p.requires_grad:     
                         num_param += p.numel()
                     
             num_modules[enum_shape] = enum_module + 1 if enum_module is not None else 0
-            num_params[enum_shape] = num_param         #another method, split by equal amount of param (not yet implemented)
+            num_params[enum_shape] = num_param         #another method, split by computational cost (not yet implemented)
 
         partitions = []
         tot_num_modules = 0
@@ -391,11 +392,14 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
     def precondition(self, vectors: ParamVector = None, grad_scale=None, use_inv=True):
         if grad_scale is None:
             grad_scale = self.config.grad_scale
-        for shape in _module_level_shapes:
-            for module in self.modules_for(shape):
-                if not self.is_module_for_inv_and_precondition(module):
-                    continue
-                self._precondition_module(module, shape, vectors, grad_scale=grad_scale, use_inv=use_inv)
+        for enum_shape, shape in enumerate(_module_level_shapes):
+            for enum_module, module in enumerate(self.modules_for(shape)):
+                if self.world_rank == self.partitions[enum_shape][enum_module]:
+                    if not self.is_module_for_inv_and_precondition(module):
+                        continue
+                    self._precondition_module(module, shape, vectors, grad_scale=grad_scale, use_inv=use_inv)
+
+        # SHAPE_FULL not parallelizable
         params = [p for p in self.parameters_for(SHAPE_FULL)]   #Not parallelizable
         if len(params) > 0:
             fisher = self._get_full_fisher()
@@ -408,8 +412,11 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             fisher.mvp(vectors=vectors, use_inv=use_inv, inplace=True)
 
         # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
-        if dist.is_initialized():
-            self.all_reduce_all_grad(async_op=False)
+        if self.world_size > 1:
+            if self.do_accumulate:
+                self.all_gather_or_reduce_grad()
+            else:
+                self.all_reduce_all_grad(async_op=False)
 
     def _precondition_module(self, module, shape=None, vectors: ParamVector = None,
                             vec_weight: torch.Tensor = None, vec_bias: torch.Tensor = None,
@@ -487,10 +494,9 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self.all_reduce_no_curvature_grad(async_op=async_op)
 
     @nvtx.range('reduce_scatter_curvature')
-    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True, async_op=True):
+    def reduce_scatter_curvature(self, kron=None, diag=None, with_grad=True):
         assert kron is None and diag is None
         group = self.config.sync_group
-        handles = []
 
         rank = 0
         tensor_list = []
@@ -503,7 +509,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                 # we will send when we reached the end of the partitioned rank
                 if rank != self.partitions[enum_shape][enum_module]:
                     vector = parameters_to_vector(tensor_list)
-                    handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
+                    dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group)
                     if self.world_rank == rank:
                         vector_to_parameters(vector, tensor_list)
                     rank += 1
@@ -526,15 +532,12 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
         #last reduce for last rank
         vector = parameters_to_vector(tensor_list)
-        handles.append(dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group, async_op=async_op))
+        dist.reduce(vector, rank, op=dist.ReduceOp.AVG, group=group)
         if self.world_rank == rank:
             vector_to_parameters(vector, tensor_list)
 
         assert rank < self.world_size
         
-        if async_op:
-            for handle in handles:
-                handle.wait()
     
 
     @nvtx.range('reduce_curvature')
@@ -609,6 +612,51 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         self._scatter_or_gather_grad('scatter', async_op=async_op)
 
     @nvtx.range('all_gather_grad')
+    def all_gather_or_reduce_grad(self):
+        group = self.config.sync_group
+
+        rank = 0
+        tensor_list = []
+        tensor_list_not_prec = []
+        for enum_shape, shape in enumerate(_module_level_shapes):
+            for enum_module, module in enumerate(self.modules_for(shape)):
+                
+                # we will broadcast when we reached the end of the partitioned rank
+                if rank != self.partitions[enum_shape][enum_module]:
+                    if len(tensor_list) > 0:
+                        vector = parameters_to_vector(tensor_list)
+                        dist.broadcast(vector, rank, group=group)
+                        if self.world_rank == rank:
+                            vector_to_parameters(vector, tensor_list)
+                    rank += 1
+                    assert rank == self.partitions[enum_shape][enum_module]
+                    tensor_list = []
+
+                if self.is_module_for_inv_and_precondition(module):
+                    for p in module.parameters():
+                        if p.requires_grad and p.grad is not None:
+                            tensor_list.append(p.grad)
+                else:
+                    for p in module.parameters():
+                        if p.requires_grad and p.grad is not None:
+                            tensor_list_not_prec.append(p.grad)
+
+        #last broadcast of last rank
+        if len(tensor_list) > 0:
+            vector = parameters_to_vector(tensor_list)
+            dist.broadcast(vector, rank, group=group)
+            if self.world_rank == rank:
+                vector_to_parameters(vector, tensor_list)
+
+        assert rank < self.world_size
+
+        # all_reduce all grads, which do not need prec
+        if len(tensor_list_not_prec) > 0:
+            vector = parameters_to_vector(tensor_list_not_prec)
+            dist.all_reduce(vector, op=dist.ReduceOp.AVG, group=group)
+            vector_to_parameters(vector, tensor_list_not_prec)
+
+
     def all_gather_grad(self, async_op=False):
         self._scatter_or_gather_grad('gather', async_op=async_op)
 
