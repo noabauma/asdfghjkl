@@ -414,6 +414,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         # all_reduce all the grads after preconditioning them. (Basic DDP. Will be changed when DP & MP)
         if self.world_size > 1:
             if self.do_accumulate:
+                print('all_gather_or_reduce_grad')
                 self.all_gather_or_reduce_grad()
             else:
                 self.all_reduce_all_grad(async_op=False)
