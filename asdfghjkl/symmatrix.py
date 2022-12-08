@@ -590,7 +590,10 @@ class KFE:
 
 class UnitWise:
     def __init__(self, data=None, inv=None):
-        self.data = data.contiguous()
+        if isinstance(data, torch.Tensor):
+            self.data = data.contiguous()
+        else:
+            self.data = data
         self.inv = inv
 
     def __add__(self, other):
