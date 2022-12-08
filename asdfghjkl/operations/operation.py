@@ -333,8 +333,11 @@ class Operation:
                     self.accumulate_result(cov, OP_COV_UNIT_WISE, 'data')
                 else:
                     if dist.is_initialized():
+                        cov_ = cov.contiguous()
                         with nvtx.range('all_reduce_OP_COV_UNIT_WISE_INV'):
-                            dist.all_reduce(cov, op=dist.ReduceOp.AVG)
+                            dist.all_reduce(cov_, op=dist.ReduceOp.AVG)
+                        cov = cov_
+                        del cov_
 
                     diag = torch.diagonal(cov, dim1=1, dim2=2)
                     diag += damping
