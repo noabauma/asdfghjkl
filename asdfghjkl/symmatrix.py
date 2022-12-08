@@ -593,7 +593,7 @@ class UnitWise:
         if isinstance(data, torch.Tensor):
             self.data = data.contiguous()
         else:
-            self.data = data.contiguous()
+            self.data = data
         self.inv = inv
 
     def __add__(self, other):
