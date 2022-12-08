@@ -590,7 +590,7 @@ class KFE:
 
 class UnitWise:
     def __init__(self, data=None, inv=None):
-        self.data = data
+        self.data = data.contiguous()
         self.inv = inv
 
     def __add__(self, other):
