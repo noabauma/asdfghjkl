@@ -1,6 +1,7 @@
 from typing import List, Union, Any
 from dataclasses import dataclass
 
+import numpy as np
 import torch
 from torch import nn
 from torch.cuda import nvtx
@@ -158,26 +159,32 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         """
         len_shapes = len(_module_level_shapes)
         num_modules = [0]*len_shapes
-        num_params = [0]*len_shapes
+        num_params = []
+        comp_cost_layers = []
         for enum_shape, shape in enumerate(_module_level_shapes):
-            num_param = 0
             enum_module = None
             for enum_module, module in enumerate(self.modules_for(shape)):
                 #if not self.is_module_for_inv_and_precondition(module):
-                for p in module.parameters():
-                    if p.requires_grad:     
-                        num_param += p.numel()
+                if module.weight.requires_grad:     
+                    comp_cost_layers.append(self.computational_cost(shape, module))
+                    p_ = 0
+                    for p in module.parameters():
+                        p_ += p.numel()
+                    
+                num_params.append(p_)
                     
             num_modules[enum_shape] = enum_module + 1 if enum_module is not None else 0
-            num_params[enum_shape] = num_param         #another method, split by computational cost (not yet implemented)
+
+        if self.world_rank == 0:
+            print(num_params, "\n", comp_cost_layers, "\n")
 
         partitions = []
         tot_num_modules = 0
-        tot_num_params = 0
         for shape in range(len_shapes):
             partitions.append([0]*num_modules[shape])
             tot_num_modules += num_modules[shape]
-            tot_num_params += num_params[shape]
+
+        
 
         if self.world_size == 1:                    
             return partitions
@@ -192,23 +199,141 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             return partitions
             
         else:
-            split_size = tot_num_modules // self.world_size
+            assert tot_num_modules == len(comp_cost_layers)
+
+            split_list = np.array([0])
+
+            for rank in range(self.world_size-1):
+                if rank == 0:
+                    split_list = np.append(split_list, self.next_split(comp_cost_layers))
+                else:
+                    sub_sums = []
+                    for i in range(1, len(split_list)):
+                        
+                        local_comp_cost = np.sum(comp_cost_layers[split_list[i-1]:split_list[i]])
+                        sub_sums.append(local_comp_cost)
+                        
+                        if i == len(split_list) - 1:
+                            local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
+                            sub_sums.append(local_comp_cost)
+
+                    while(True):
+                        i = np.argmax(sub_sums)
+                        if i == len(sub_sums) - 1:
+                            sub_comp_cost_layers = comp_cost_layers[split_list[i]:]
+                            shift = split_list[i]
+                        else:
+                            sub_comp_cost_layers = comp_cost_layers[split_list[i]:split_list[i+1]]
+                            shift = split_list[i]
+
+                        if len(sub_comp_cost_layers) > 1:
+                            break
+                        else:
+                            sub_sums[i] = -1
+
+
+                    split_list = np.append(split_list, self.next_split(sub_comp_cost_layers) + shift)
+                    split_list = np.sort(split_list)
+
+            sub_sums = []
+            for i in range(1, len(split_list)):
+                
+                local_comp_cost = np.sum(comp_cost_layers[split_list[i-1]:split_list[i]])
+                sub_sums.append(local_comp_cost)
+                
+                if i == len(split_list) - 1:
+                    local_comp_cost = np.sum(comp_cost_layers[split_list[i]:])
+                    sub_sums.append(local_comp_cost)
+
+            #if self.world_rank == 0:
+            #    print(sub_sums, ", ", split_list, "\n")
+
+            next_split = split_list[1]
             rank = 0
-            split = split_size
+            split = next_split
             tot_module = 0
             for shape in range(len_shapes):
                 module_ = None
                 for module_ in range(num_modules[shape]):
                     if tot_module + module_ >= split and rank != self.world_size - 1:
                         rank  += 1
-                        split += split_size
+                        if rank != self.world_size - 1:
+                            next_split = split_list[rank+1]
+                        split = next_split
 
                     partitions[shape][module_] = rank
                 tot_module += module_ + 1 if module_ is not None else 0
 
             return partitions
             
+    def computational_cost(self, shape, module):
+        """
+        returns the estimated computational cost of a given module for computing the inv and prec
+        """
+        supported_layers = ['Linear', 'Conv2d', 'BatchNorm1d', 'BatchNorm2d', 'LayerNorm', 'Embedding']
+        module_name = str(module).partition('(')[0]
+        assert module_name in supported_layers, 'Not supported module: ' + str(module)
 
+        p = module.weight
+
+        if not self.is_module_for_inv_and_precondition(module):
+            return 0
+        else:
+            return p.numel()**0.3
+            """
+            if shape in [SHAPE_KRON, SHAPE_SWIFT_KRON]:
+                if module_name in ['Linear']:
+                    d_l = p.shape[0]
+                    d_l_1 = p.shape[1]
+
+                    return d_l**3 + d_l_1**3
+                elif module_name in ['Conv2d']:
+                    c_l   = p.shape[0]
+                    c_l_1 = p.shape[1]
+                    k_1 = p.shape[2]
+                    k_2 = p.shape[3]
+                    ckk = c_l_1*k_1*k_2
+
+                    return c_l**3 + ckk**3
+                else:
+                    print("module: ", module, " for shape:", shape, " not supported")
+                    raise RuntimeError
+
+            elif shape in [SHAPE_UNIT_WISE]:
+                if module_name in ['BatchNorm1d', 'BatchNorm2d', 'LayerNorm']:
+                    assert p.ndim == 1, "Idk what todo with this layer: " + str(module)
+                    c_l_1 = 2*p.shape[0]
+                    return 4*c_l_1
+                else:
+                    print("module: ", module, " for shape:", shape, " not supported")
+                    raise RuntimeError
+
+            elif shape in [SHAPE_DIAG]:
+                return p.numel()
+            else:
+                print("shape: ", shape, " not known comp cost")
+                raise RuntimeError
+            """
+                
+    def next_split(self, subset_partitions):
+        """
+        deciding where the next split is happening
+        
+        input: subset_partitions: [] is a subset of comp_cost_layers
+
+        output: index where to split (int)
+        """
+        assert len(subset_partitions) > 1
+
+        x = np.array(subset_partitions)
+        y = np.sum(subset_partitions)/2
+
+        split_loc = len(x[np.cumsum(x) < y])
+
+        #if split_loc == 0:  # for resnet and densenet, this is really good
+        split_loc += 1
+        
+        return split_loc
 
 
     def do_forward_and_backward(self, step=None):

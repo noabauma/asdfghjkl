@@ -231,7 +231,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
             assert len(shape) == 2
             assert shape[0] == shape[1]
 
-            tmp_cost += shape[0]**0.5 # ATM simple O(n^3) assumption (maybe even less 0.4)
+            tmp_cost += shape[0]**0.4 # ATM simple O(n^3) assumption (maybe even less 0.4)
 
         return tmp_cost
 
