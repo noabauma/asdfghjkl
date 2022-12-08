@@ -258,7 +258,7 @@ class Operation:
                 del in_data
                 B = self.cov_kron_B(module, out_grads).mul_(cov_scale)
 
-                #Here reduce all A & B?
+                # if inverse already wanted -> without ema
                 if dist.is_initialized():
                     with nvtx.range('all_reduce_A_B'):
                         A_dim = A.shape[0]
@@ -286,13 +286,27 @@ class Operation:
             elif op_name == OP_COV_SWIFT_KRON_INV:
                 A = self.cov_swift_kron_A(module, in_data)
                 del in_data
+                B = self.cov_swift_kron_B(module, out_grads)
+                damping_A, damping_B = self.cov_kron_damping(A, B)
+
+                if dist.is_initialized():
+                    with nvtx.range('all_reduce_SWIFT_A_B'):
+                        A_dim = A.shape[0]
+                        B_dim = B.shape[0]
+                        packed = torch.cat((A.flatten(), B.flatten())).cuda()
+                        dist.all_reduce(packed, op=dist.ReduceOp.AVG)
+                        A_, B_ = torch.split(packed, [A.numel(), B.numel()])
+
+                        A = A_.reshape((A_dim, A_dim))
+                        B = B_.reshape((B_dim, B_dim))
+
+                        del packed, A_, B_
+
                 if A.shape[0] == A.shape[1]:
                     A_inv = cholesky_inv(A.mul_(cov_scale), damping_A)
                 else:
                     A_inv = smw_inv(A, damping_A)
                 del A
-                B = self.cov_swift_kron_B(module, out_grads)
-                damping_A, damping_B = self.cov_kron_damping(A, B)
                 if B.shape[0] == B.shape[1]:
                     B_inv = cholesky_inv(B.mul_(cov_scale), damping_B)
                 else:
@@ -318,8 +332,13 @@ class Operation:
                 if op_name == OP_COV_UNIT_WISE:
                     self.accumulate_result(cov, OP_COV_UNIT_WISE, 'data')
                 else:
+                    if dist.is_initialized():
+                        with nvtx.range('all_reduce_OP_COV_UNIT_WISE_INV'):
+                            dist.all_reduce(cov, op=dist.ReduceOp.AVG)
+
                     diag = torch.diagonal(cov, dim1=1, dim2=2)
                     diag += damping
+                        
                     inv = torch.inverse(cov)
                     self.accumulate_result(inv, OP_COV_UNIT_WISE, 'inv')
             elif op_name in [OP_COV_DIAG, OP_COV_DIAG_INV]:
@@ -328,12 +347,19 @@ class Operation:
                     if op_name == OP_COV_DIAG:
                         self.accumulate_result(cov, OP_COV_DIAG, 'weight')
                     else:
+                        if dist.is_initialized():
+                            with nvtx.range('all_reduce_OP_COV_DIAG_INV_weight'):
+                                dist.all_reduce(cov, op=dist.ReduceOp.AVG)
+
                         self.accumulate_result(1/(cov+damping), OP_COV_DIAG, 'weight_inv')
                 if original_requires_grad(module, 'bias'):
                     cov = self.cov_diag_bias(module, out_grads).mul_(cov_scale)
                     if op_name == OP_COV_DIAG:
                         self.accumulate_result(cov, OP_COV_DIAG, 'bias')
                     else:
+                        if dist.is_initialized():
+                            with nvtx.range('all_reduce_OP_COV_DIAG_INV_bias'):
+                                dist.all_reduce(cov, op=dist.ReduceOp.AVG)
                         self.accumulate_result(1/(cov+damping), OP_COV_DIAG, 'bias_inv')
             elif op_name == OP_GRAM_HADAMARD:
                 assert self._model_for_kernel is not None, f'model_for_kernel needs to be set for {OP_GRAM_HADAMARD}.'

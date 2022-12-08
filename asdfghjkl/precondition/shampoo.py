@@ -315,7 +315,7 @@ class ShampooGradientMaker(PreconditionedGradientMaker):
         for handler in handler_list:
             handler.wait()
         
-        if self.world_rank < len(tensor_list):  # this check needed if there are more GPUs than layers
+        if self.world_rank < len(tensor_list):  # this check is needed if there are more GPUs than layers
             vector_to_parameters(tensor_list[self.world_rank], grads_list[self.world_rank])
 
         #print("after scatter: ", grads, "\n")

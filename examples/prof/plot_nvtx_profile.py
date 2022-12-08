@@ -131,17 +131,32 @@ if __name__ == '__main__':
 
     ax.grid()
 
+    num_gpus = len(args.sqlite_path)
+
+    args.known_blocking_comm = 'forward' if 'shampoo' in args.sqlite_path[0] else 'Iter'
+    args.known_blocking_comm = 'update_curvature' if 'kfac' in args.sqlite_path[0] else 'Iter'
+
+    keys = []
     for gpu, sq_ath in enumerate(args.sqlite_path):
         con = sqlite3.connect(sq_ath)
         times = main()
 
-        num_keys = len(times)
+        for key, array in times.items():
+            if key not in keys:
+                keys.append(key)
 
-        for enum, (key, array) in enumerate(times.items()):
-            if gpu == 0:
-                ax.broken_barh(array, ((gpu - 0.45), 0.9), label=key, color=colors[enum])
+    colors_by_keys = dict(zip(keys, colors))
+
+    for gpu, sq_ath in enumerate(args.sqlite_path):
+        con = sqlite3.connect(sq_ath)
+        times = main()
+
+        for key, array in times.items():
+            if key in keys:
+                ax.broken_barh(array, ((gpu - 0.45), 0.9), label=key, color=colors_by_keys[key])
+                keys.remove(key)
             else:
-                ax.broken_barh(array, ((gpu - 0.45), 0.9), color=colors[enum])
+                ax.broken_barh(array, ((gpu - 0.45), 0.9), color=colors_by_keys[key])
 
     ax.set_xlabel('times [ms]')
     ax.set_ylabel('GPU') 
