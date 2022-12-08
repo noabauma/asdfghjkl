@@ -85,6 +85,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             assert all(len(module_partitions[0]) == len(module_partitions[i]) for i in range(1, world_size))
             self.partitioned_modules = [m for partition in module_partitions for m in partition]
             self.num_modules_per_partition = len(module_partitions[0])
+            assert module_partitions is None, "No longer supported! Distr training is now automatically done if available!"
         elif dist.is_initialized(): #if initialized, we do automatically distr model parallelism
             self.partitioned_modules = []
             self.num_modules_per_partition = None
@@ -311,7 +312,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                                            )
 
         if self.do_accumulate and self.world_size > 1:
-            
+            """
             for f in self.get_fisher_from_model():
                 f += 1.1*self.world_rank
 
@@ -323,9 +324,10 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
             print('before reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
             
             #self.sync_curvature(enabled=dist.is_initialized())  #all_reduce all curvature
+            """
             self.reduce_scatter_curvature()
-            dist.barrier()
-            print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
+            #dist.barrier()
+            #print('after reduce_scatter FIM: ', self.get_fisher_from_model(), "\n\n", flush=True)
 
 
     def update_preconditioner(self, damping=None, module_name=None, kron=None, zero_curvature=False, partition_aware=False):
@@ -400,7 +402,7 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                         continue
                     self._precondition_module(module, shape, vectors, grad_scale=grad_scale, use_inv=use_inv)
 
-        # SHAPE_FULL not parallelizable
+        # SHAPE_FULL not model parallelizable
         params = [p for p in self.parameters_for(SHAPE_FULL)]   #Not parallelizable
         if len(params) > 0:
             fisher = self._get_full_fisher()
