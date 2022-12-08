@@ -152,7 +152,7 @@ class FisherMaker(GradientMaker):
     def _register_fisher(self, cxt: OperationContext):
         model = self.model
         attr = self.config.fisher_attr
-        for module in model.modules():                  #TODO: only certain GPUs need specific modules for model-parallelism?
+        for module in model.modules():
             fisher = getattr(module, attr, None)
             if fisher is not None:
                 cxt.register_symmatrix(module, fisher)
@@ -203,25 +203,12 @@ class FisherMaker(GradientMaker):
         return data
 
     def reduce_scatter_fisher(self,
-                              partitions,
+                              module_partitions,
                               *keys,
                               with_grad=True,
                               group: dist.ProcessGroup = None,
                               async_op=False):
-
-        world_size = dist.get_world_size()
-        world_rank = dist.get_rank()
-
-        n_fisher_of_shape = [1, 2, 2, None, 1, 2]
         
-        pointer = 0
-        for enum_shape, partition_by_shape in enumerate(partitions):
-            assert n_fisher_of_shape[enum_shape] is not None, "ATM KFE distr not supported"
-            for enum_module, partition_by_module in enumerate(partition_by_shape):
-                
-                if self.world_rank == self.partitions[enum_shape][enum_module]:
-                    return
-        """
         assert dist.is_initialized()
         assert torch.cuda.is_available()
         assert dist.get_backend(group) == dist.Backend.NCCL
@@ -250,7 +237,7 @@ class FisherMaker(GradientMaker):
             output = input_list[dist.get_rank(group)]
             handles.append(dist.reduce_scatter(output, input_list, group=group, async_op=async_op))
         return handles
-        """
+        
 
     def reduce_fisher(self,
                       modules,

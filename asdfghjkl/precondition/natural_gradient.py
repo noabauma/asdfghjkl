@@ -502,8 +502,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
         rank = 0
         tensor_list = []
         for enum_shape, shape in enumerate(_module_level_shapes):
-            if enum_shape == 4: #atm no support for BatchNorm layers due to not being contiguous
-                continue
+            #if enum_shape == 4: #atm no support for BatchNorm layers due to not being contiguous
+            #    continue
             keys_list = self._keys_list_from_shape(shape)
             for enum_module, name_module in enumerate(self.named_modules_for(shape)):
 
