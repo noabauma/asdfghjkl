@@ -141,13 +141,17 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
 
     def get_distr_prec_partition(self): 
         """
-        this method distributes the workload over the rank for even amount of modules for different fisher shapes (layer-wise even as possible)
+        this method distributes the workload over the rank by the computational cost of each layer.
+        If there are more GPUs than layers. Some will be idle.
+
+        workload is splitted by the type of FIM:
+        [[SHAPE_LAYER_WISE], [SHAPE_KRON], [SHAPE_SWIFT_KRON], [SHAPE_KFE], [SHAPE_UNIT_WISE], [SHAPE_DIAG]]
 
         e.g.
-        world_size 5:
+        world_size 8:
         
         ResNet18:
-        [[], [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2], [], [], [2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4], []]
+        [[], [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6], [], [], [6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7], []]
 
         MLP 3 layers:
         [[], [0, 1, 2], [], [], [], []]
@@ -175,8 +179,8 @@ class NaturalGradientMaker(PreconditionedGradientMaker):
                     
             num_modules[enum_shape] = enum_module + 1 if enum_module is not None else 0
 
-        if self.world_rank == 0:
-            print(num_params, "\n", comp_cost_layers, "\n")
+        #if self.world_rank == 0:
+        #    print(num_params, "\n", comp_cost_layers, "\n")
 
         partitions = []
         tot_num_modules = 0

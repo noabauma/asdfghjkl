@@ -4,22 +4,30 @@ import matplotlib
 #matplotlib.use('Agg')
 #matplotlib.rcParams.update({'font.size': 20})
 import matplotlib.pyplot as plt
+import re
 
 colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
 
 
-def plot_time_bar(ax, events, pickle_file, order='ms', rate=10**6):
+def plot_time_bar(ax, events, num_gpus, order='ms', rate=10**6):
     ax.set_ylabel(f'Time [{order}]')
     bottoms = {key: 0. for key in ['runtime_max']} if args.use_max else {key: 0. for key in ['runtime']}
     for event in events:
         for key in bottoms:
             yval = float(times[key][event]) / rate  # ns -> ms by default
+            if event in all_events:
+                ax.bar(num_gpus +'GPUs', yval, bottom=bottoms[key], label=event, color=colors_by_events[event])
+                all_events.remove(event)
+            else:
+                ax.bar(num_gpus +'GPUs', yval, bottom=bottoms[key], color=colors_by_events[event])
+            """
             if pickle_file == 0 and len(args.pickle_path) == 1:
                 ax.bar(str(pickle_file+1)+'GPU', yval, bottom=bottoms[key], label=event, color=colors_by_events[event])
             elif pickle_file == 1:
-                ax.bar(str(pickle_file+1)+'GPUs', yval, bottom=bottoms[key], label=event, color=colors_by_events[event])
+                ax.bar(str(num_gpus)+'GPUs', yval, bottom=bottoms[key], label=event, color=colors_by_events[event])
             else:
                 ax.bar(str(pickle_file+1)+'GPUs', yval, bottom=bottoms[key], color=colors_by_events[event])
+            """
             bottoms[key] += yval
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[::-1], labels[::-1], loc='best')
@@ -31,7 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('--fig-path', type=str, default='data/prof.png')
     parser.add_argument('--title', type=str, default='')
     parser.add_argument('--events', type=str, default='all')
-    parser.add_argument('--sub_events', type=str)
+    parser.add_argument('--ignore_events', type=str, default=None)
     parser.add_argument('--use_max', action='store_true', default=False)
     args = parser.parse_args()
 
@@ -39,30 +47,39 @@ if __name__ == '__main__':
     
     ax.set_title(args.title)
 
-    if len(args.pickle_path) > 1:   # first plot will always be 1GPU and the next ones multi GPUs (which also profile communications)
+    all_events = []
+    for pickle_path in args.pickle_path:
         df = pd.read_pickle(args.pickle_path[1])
-        all_events = df.index if args.events == 'all' else args.events.split(',')
-        colors_by_events = {}
-        for i, event in enumerate(all_events):
-            colors_by_events[event] = colors[i]
-    else:
-        df = pd.read_pickle(args.pickle_path[0])
-        all_events = df.index if args.events == 'all' else args.events.split(',')
-        colors_by_events = {}
-        for i, event in enumerate(all_events):
-            colors_by_events[event] = colors[i]
+        pickle_events = df.index if args.events == 'all' else args.events.split(',')
+        for event in pickle_events:
+            if event not in all_events:
+                all_events.append(event)
+
+    if args.ignore_events is not None:
+        ignore_events = args.ignore_events.split(',')
+        for ignore_event in ignore_events:
+            if ignore_event in all_events:
+                all_events.remove(ignore_event)
+    
+    colors_by_events = dict(zip(all_events, colors))
 
 
-    for i, pickle_path in enumerate(args.pickle_path):
+    for pickle_path in args.pickle_path:
         df = pd.read_pickle(pickle_path)
         events = df.index if args.events == 'all' else args.events.split(',')
+        if args.ignore_events is not None:
+            ignore_events = args.ignore_events.split(',')
+            df = df.drop(index=ignore_events)
+
+
         times = df.to_dict()
         if args.use_max:
             events = [event for event in events if event in times['runtime_max']]
         else:
             events = [event for event in events if event in times['runtime']]
         
-        plot_time_bar(ax, events, i)
+        num_gpus = re.findall(r'\d+', pickle_path)[0]
+        plot_time_bar(ax, events, num_gpus)
 
     plt.tight_layout()
     #plt.savefig(args.fig_path)

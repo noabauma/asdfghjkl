@@ -13,9 +13,14 @@ def get_all_event_texts():
     SELECT DISTINCT text
     FROM NVTX_EVENTS;
     """
-    con = sqlite3.connect(args.sqlite_path[0])
-    df = pd.read_sql(sql, con)
-    return [row['text'] for _, row in df.iterrows()]
+    events = []
+    for sqlite_path in args.sqlite_path:
+        con = sqlite3.connect(sqlite_path)
+        df = pd.read_sql(sql, con)
+        for _, row in df.iterrows():
+            if row['text'] not in events:
+                events.append(row['text'])
+    return events
 
 
 def get_event_start_end_single(event_text, con):
@@ -165,5 +170,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_max', action='store_true', default=False)
 
     args = parser.parse_args()
+
+    args.pickle_path = args.sqlite_path[0][:-9] + '.pickle' if args.pickle_path == 'data/nvtx_events.pickle' else 'data/nvtx_events.pickle'
 
     main()
