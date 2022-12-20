@@ -123,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('--event_texts', type=str)
     parser.add_argument('--event_keywords', type=str)
     parser.add_argument('--wandb_run_path', type=str, default=None)
-    parser.add_argument('--known_blocking_comm', type=str, default='Iter')
+    parser.add_argument('--known_blocking_comm', type=str, default=None)
     parser.add_argument('--title', type=str, default='')
     args = parser.parse_args()
 
@@ -133,8 +133,10 @@ if __name__ == '__main__':
 
     num_gpus = len(args.sqlite_path)
 
-    args.known_blocking_comm = 'forward' if 'shampoo' in args.sqlite_path[0] else 'Iter'
-    args.known_blocking_comm = 'update_curvature' if 'kfac' in args.sqlite_path[0] else 'Iter'
+    if args.known_blocking_comm is None:
+        args.known_blocking_comm = 'forward' if 'shampoo' in args.sqlite_path[0] else 'Iter'
+        args.known_blocking_comm = 'update_curvature' if 'kfac' in args.sqlite_path[0] else 'Iter'
+
 
     keys = []
     for gpu, sq_ath in enumerate(args.sqlite_path):

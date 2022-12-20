@@ -171,6 +171,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    args.pickle_path = args.sqlite_path[0][:-9] + '.pickle' if args.pickle_path == 'data/nvtx_events.pickle' else 'data/nvtx_events.pickle'
+    if args.pickle_path == 'data/nvtx_events.pickle':
+        args.pickle_path = args.sqlite_path[0][:-9] + '.pickle'
 
     main()
